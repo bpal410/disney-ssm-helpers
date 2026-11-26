@@ -86,6 +86,11 @@ func AddTagFlag(cmd *cobra.Command) {
 	cmd.Flags().StringSliceP("tag", "t", nil, "Adds the specified tag as an additional column to be displayed during the instance selection prompt.")
 }
 
+// AddSortTagFlag adds --sort-tag to command
+func AddSortTagFlag(cmd *cobra.Command, defaultTag string) {
+	cmd.Flags().String("sort-tag", defaultTag, "Sort the instance selection prompt by the value of this tag (case-insensitive); instances without it are listed last. The tag is shown as a column.")
+}
+
 // AddsAttributeFlag adds the --attribute flag to command.
 func AddAttributeFlag(cmd *cobra.Command) {
 	cmd.Flags().StringSliceP("attribute", "x", nil, "Adds the specified attribute as an additional column to be displayed during the instance selection prompt.")

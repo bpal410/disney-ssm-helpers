@@ -85,6 +85,11 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 
+	var sortTag string
+	if sortTag, err = cmdutil.GetFlagString(cmd, "sort-tag"); err != nil {
+		log.Fatal(err)
+	}
+
 	var sessionName string
 	if sessionName, err = cmdutil.GetFlagString(cmd, "session-name"); err != nil {
 		log.Fatal(err)
@@ -172,7 +177,7 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 		}
 	} else {
 		// If -i was not specified, go to a selection prompt before starting sessions
-		selectedInstances, err := startSelectionPrompt(&instancePool, totalInstances, tagList, attributeList)
+		selectedInstances, err := startSelectionPrompt(&instancePool, totalInstances, sortTag, tagList, attributeList)
 		if err != nil {
 			if err == terminal.InterruptErr {
 				log.Info("Instance selection interrupted.")
@@ -304,10 +309,10 @@ func addInstanceToTmuxWindow(below tmux.Pane, profile string, region string, ins
 	return pane, pane.SendLine(fmt.Sprintf("aws ssm start-session --profile %s --region %s --target %s", profile, region, instanceID))
 }
 
-func startSelectionPrompt(instances *instance.InstanceInfoSafe, totalInstances int32, tags, attributes ssmx.ListSlice) (selectedInstances []instance.InstanceInfo, err error) {
+func startSelectionPrompt(instances *instance.InstanceInfoSafe, totalInstances int32, sortTag string, tags, attributes ssmx.ListSlice) (selectedInstances []instance.InstanceInfo, err error) {
 	instanceIDList := []string{}
 	fields := append([]string(tags), []string(attributes)...)
-	promptList := instances.FormatStringSlice(fields...)
+	promptList := instances.FormatStringSlice(sortTag, fields...)
 	fmt.Println("      ", promptList[0])
 
 	prompt := &survey.MultiSelect{
