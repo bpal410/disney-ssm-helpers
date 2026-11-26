@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -103,29 +104,43 @@ func runCommand(cmd *cobra.Command, args []string) {
 
 	ctx := cmd.Context()
 	wg, output := sync.WaitGroup{}, invocation.ResultSafe{}
+	started := 0
 
 	// Set up our AWS session for each permutation of profile + region and iterate over them
 	sessionPool := session.NewPool(ctx, profileList, regionList, log)
 	for _, sess := range sessionPool.Sessions {
-		threadLocalSendCommandInput := sciInput
-		ssmClient := ssm.NewFromConfig(sess.Config)
-
+		var resolvedIDs []string
 		if len(addressList) > 0 {
 			ec2Client := ec2.NewFromConfig(sess.Config)
 			hr := resolver.NewHostnameResolver(addressList)
-			ids, _ := hr.ResolveToInstanceId(ctx, ec2Client)
-			threadLocalSendCommandInput.InstanceIds = append(threadLocalSendCommandInput.InstanceIds, ids...)
+			if resolvedIDs, err = hr.ResolveToInstanceId(ctx, ec2Client); err != nil {
+				log.Errorf("Could not resolve addresses to instances for %s in %s\n%v", sess.ProfileName, sess.Region(), err)
+			}
 		}
 
+		sessionInput := inputForSession(sciInput, resolvedIDs)
+		if len(sessionInput.InstanceIds) == 0 && len(sessionInput.Targets) == 0 {
+			log.Debugf("No instances to target for %s in %s, skipping", sess.ProfileName, sess.Region())
+			continue
+		}
+
+		ssmClient := ssm.NewFromConfig(sess.Config)
+
 		log.Debugf("Starting invocation targeting account %s in %s", sess.ProfileName, sess.Region())
+		started++
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ssmx.RunInvocations(ctx, sess, ssmClient, sciInput, &output)
+			ssmx.RunInvocations(ctx, sess, ssmClient, sessionInput, &output)
 		}()
 	}
 
 	wg.Wait() // Wait for each account/region combo to finish
+
+	// Only possible when --address matched no instances in any profile or region
+	if started == 0 {
+		log.Fatal("No instances matched the given addresses in any profile or region")
+	}
 
 	resultFormat := "%-24s %-15s %-15s %s"
 	var successCounter, failedCounter int
@@ -169,4 +184,13 @@ func runCommand(cmd *cobra.Command, args []string) {
 	}
 
 	return
+}
+
+// inputForSession returns a copy of base for one profile/region, with that
+// session's resolved instance IDs added. base is shared by every session and
+// is never modified, so instance IDs found in one account are not sent to another.
+func inputForSession(base *ssm.SendCommandInput, resolvedIDs []string) *ssm.SendCommandInput {
+	input := *base
+	input.InstanceIds = append(slices.Clone(base.InstanceIds), resolvedIDs...)
+	return &input
 }
