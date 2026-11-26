@@ -26,12 +26,15 @@ func NewHostnameResolver(addrs []string) *HostnameResolver {
 	}
 }
 
-func (hr *HostnameResolver) ResolveToInstanceId(ctx context.Context, client ec2.DescribeNetworkInterfacesAPIClient) (output []string, err error) {
-	ips := make([]string, 1)
+// ResolveToInstanceId returns the IDs of the instances whose network interfaces
+// have one of the resolver's addresses as a private IP. Each instance is listed
+// once, in the order its interface was returned.
+func (hr *HostnameResolver) ResolveToInstanceId(ctx context.Context, client ec2.DescribeNetworkInterfacesAPIClient) ([]string, error) {
+	ips := make([]string, 0, len(hr.addrs))
 	for _, addr := range hr.addrs {
 		ip, err := resolveToFirst(addr)
 		if err != nil {
-			return nil, fmt.Errorf("unable to resolve hostname to %v to ip", hr.addrs)
+			return nil, fmt.Errorf("unable to resolve %s to an IP address: %w", addr, err)
 		}
 
 		ips = append(ips, ip.String())
@@ -46,6 +49,9 @@ func (hr *HostnameResolver) ResolveToInstanceId(ctx context.Context, client ec2.
 		},
 	}
 
+	var output []string
+	seen := make(map[string]bool)
+
 	// Fetch all the network interfaces described
 	paginator := ec2.NewDescribeNetworkInterfacesPaginator(client, dniInput)
 	for paginator.HasMorePages() {
@@ -55,7 +61,17 @@ func (hr *HostnameResolver) ResolveToInstanceId(ctx context.Context, client ec2.
 		}
 
 		for _, nic := range page.NetworkInterfaces {
-			output = append(output, *nic.Attachment.InstanceId)
+			// Interfaces owned by load balancers, NAT gateways, Lambda functions and
+			// so on, or not attached at all, have no instance
+			if nic.Attachment == nil || nic.Attachment.InstanceId == nil {
+				continue
+			}
+
+			id := *nic.Attachment.InstanceId
+			if !seen[id] {
+				seen[id] = true
+				output = append(output, id)
+			}
 		}
 	}
 
@@ -65,10 +81,10 @@ func (hr *HostnameResolver) ResolveToInstanceId(ctx context.Context, client ec2.
 func resolveToFirst(addr string) (net.IP, error) {
 	if ip := net.ParseIP(addr); ip != nil {
 		return ip, nil
-	} else if ips, err := net.LookupIP(addr); err == nil {
-		if len(ips[0]) > 0 {
-			return ips[0], nil
-		}
+	}
+
+	if ips, err := net.LookupIP(addr); err == nil && len(ips) > 0 {
+		return ips[0], nil
 	}
 
 	return nil, fmt.Errorf("no IP address found for %s", addr)

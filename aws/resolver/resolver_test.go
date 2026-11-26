@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockedEC2 returns one page per entry in pages, and records the inputs it receives
@@ -71,4 +72,50 @@ func TestHostnameResolver(t *testing.T) {
 		assert.EqualValues(t, []string{exampleInstanceId}, resp)
 	})
 
+	t.Run("filter contains exactly the resolved IPs", func(t *testing.T) {
+		mockClient := &mockedEC2{pages: []*ec2.DescribeNetworkInterfacesOutput{{}}}
+		testResolver := NewHostnameResolver([]string{"10.0.0.1", "10.0.0.2"})
+
+		_, err := testResolver.ResolveToInstanceId(ctx, mockClient)
+		require.NoError(t, err)
+		require.Len(t, mockClient.inputs, 1)
+		require.Len(t, mockClient.inputs[0].Filters, 1)
+		assert.Equal(t, []string{"10.0.0.1", "10.0.0.2"}, mockClient.inputs[0].Filters[0].Values)
+	})
+
+	t.Run("interfaces without an instance are skipped", func(t *testing.T) {
+		mockClient := &mockedEC2{pages: []*ec2.DescribeNetworkInterfacesOutput{
+			{NetworkInterfaces: []ec2types.NetworkInterface{
+				// e.g. a load balancer interface: attached, but not to an instance
+				{Attachment: &ec2types.NetworkInterfaceAttachment{}, PrivateIpAddress: aws.String("10.0.0.1")},
+				// an unattached interface
+				{PrivateIpAddress: aws.String("10.0.0.2")},
+				attachedNIC("i-abc", "10.0.0.3"),
+			}},
+		}}
+		testResolver := NewHostnameResolver([]string{"10.0.0.1", "10.0.0.2", "10.0.0.3"})
+
+		resp, err := testResolver.ResolveToInstanceId(ctx, mockClient)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"i-abc"}, resp)
+	})
+
+	t.Run("results across pages are combined without duplicates", func(t *testing.T) {
+		mockClient := &mockedEC2{pages: []*ec2.DescribeNetworkInterfacesOutput{
+			{NetworkInterfaces: []ec2types.NetworkInterface{attachedNIC("i-abc", "10.0.0.1")}},
+			{NetworkInterfaces: []ec2types.NetworkInterface{attachedNIC("i-def", "10.0.0.2"), attachedNIC("i-abc", "10.0.0.3")}},
+		}}
+		testResolver := NewHostnameResolver([]string{"10.0.0.1", "10.0.0.2", "10.0.0.3"})
+
+		resp, err := testResolver.ResolveToInstanceId(ctx, mockClient)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"i-abc", "i-def"}, resp)
+	})
+
+	t.Run("unresolvable address is an error", func(t *testing.T) {
+		testResolver := NewHostnameResolver([]string{"does-not-exist.invalid"})
+
+		_, err := testResolver.ResolveToInstanceId(ctx, &mockedEC2{})
+		assert.ErrorContains(t, err, "does-not-exist.invalid")
+	})
 }
