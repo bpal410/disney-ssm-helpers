@@ -5,8 +5,8 @@
 #------------------------------------------------------------------------------
 
 SHELL		:= /bin/bash
-PKG			:= github.com/disneystreaming/ssm-helpers
-IMAGE		:= docker.pkg.github.com/disneystreaming/ssm-helpers/ssm
+PKG			:= github.com/bpal410/ssm-helpers
+IMAGE		:= ghcr.io/bpal410/ssm
 
 # Pure Go sources (not vendored and not generated)
 GOFILES		= $(shell find . -type f -name '*.go' )

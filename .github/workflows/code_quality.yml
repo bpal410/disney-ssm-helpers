@@ -1,9 +1,8 @@
 name: Code Quality (gofmt, gotest)
-on: [pull_request, create]
+on: [pull_request]
 
 jobs:
   build:
-    if: github.event_name == 'pull_request'
     name: Code Quality (gofmt, gotest)
     runs-on: ubuntu-latest
     steps:

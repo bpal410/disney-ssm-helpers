@@ -11,11 +11,11 @@ import (
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/spf13/cobra"
 
-	"github.com/disneystreaming/ssm-helpers/aws/resolver"
-	"github.com/disneystreaming/ssm-helpers/aws/session"
-	"github.com/disneystreaming/ssm-helpers/cmd/cmdutil"
-	ssmx "github.com/disneystreaming/ssm-helpers/ssm"
-	"github.com/disneystreaming/ssm-helpers/ssm/invocation"
+	"github.com/bpal410/ssm-helpers/aws/resolver"
+	"github.com/bpal410/ssm-helpers/aws/session"
+	"github.com/bpal410/ssm-helpers/cmd/cmdutil"
+	ssmx "github.com/bpal410/ssm-helpers/ssm"
+	"github.com/bpal410/ssm-helpers/ssm/invocation"
 )
 
 func newCommandSSMRun() *cobra.Command {

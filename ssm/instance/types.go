@@ -7,7 +7,7 @@ import (
 	"sync"
 	"text/tabwriter"
 
-	"github.com/disneystreaming/ssm-helpers/util"
+	"github.com/bpal410/ssm-helpers/util"
 )
 
 // InstanceInfoSafe allows for concurrent-safe access to a map of InstanceInfo data

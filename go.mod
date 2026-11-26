@@ -1,11 +1,10 @@
-module github.com/disneystreaming/ssm-helpers
+module github.com/bpal410/ssm-helpers
 
 go 1.26
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.4
 	github.com/aws/aws-sdk-go v1.44.19
-	github.com/disneystreaming/gomux v0.0.0-20200305000114-de122d6df124
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.4.0

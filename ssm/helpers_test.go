@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/disneystreaming/ssm-helpers/ssm/instance"
+	"github.com/bpal410/ssm-helpers/ssm/instance"
 )
 
 func TestCreateSSMDescribeInstanceInput(t *testing.T) {

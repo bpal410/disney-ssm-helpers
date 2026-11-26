@@ -6,9 +6,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"github.com/disneystreaming/ssm-helpers/cmd/builder"
-	"github.com/disneystreaming/ssm-helpers/cmd/cmdutil"
-	"github.com/disneystreaming/ssm-helpers/cmd/logutil"
+	"github.com/bpal410/ssm-helpers/cmd/builder"
+	"github.com/bpal410/ssm-helpers/cmd/cmdutil"
+	"github.com/bpal410/ssm-helpers/cmd/logutil"
 )
 
 var version = "devel"
@@ -29,7 +29,7 @@ func newRootCmd() *cobra.Command {
 		Short: "ssm is a user-friendly wrapper for the AWS CLI SSM commands",
 		Long: `ssm is a user-friendly wrapper for the AWS CLI SSM commands
 
-Complete documentation is available at https://github.com/disneystreaming/ssm-helpers
+Complete documentation is available at https://github.com/bpal410/ssm-helpers
 
 `,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {

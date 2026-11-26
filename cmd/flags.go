@@ -9,10 +9,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	awsx "github.com/disneystreaming/ssm-helpers/aws"
-	"github.com/disneystreaming/ssm-helpers/cmd/cmdutil"
-	"github.com/disneystreaming/ssm-helpers/cmd/logutil"
-	"github.com/disneystreaming/ssm-helpers/util"
+	awsx "github.com/bpal410/ssm-helpers/aws"
+	"github.com/bpal410/ssm-helpers/cmd/cmdutil"
+	"github.com/bpal410/ssm-helpers/cmd/logutil"
+	"github.com/bpal410/ssm-helpers/util"
 )
 
 func addBaseFlags(cmd *cobra.Command) {

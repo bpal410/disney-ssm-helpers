@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/disneystreaming/ssm-helpers/cmd/cmdutil"
+	"github.com/bpal410/ssm-helpers/cmd/cmdutil"
 )
 
 func NewTestCmd() *cobra.Command {

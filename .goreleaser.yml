@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
 # Keep artifact names stable regardless of the repository (fork) name.
@@ -22,7 +23,7 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
-      - -s -w -X 'github.com/disneystreaming/ssm-helpers/cmd.version={{.Version}}' -X 'github.com/disneystreaming/ssm-helpers/cmd.commit={{.Commit}}'
+      - -s -w -X 'github.com/bpal410/ssm-helpers/cmd.version={{.Version}}' -X 'github.com/bpal410/ssm-helpers/cmd.commit={{.Commit}}'
 
 archives:
   - ids:
@@ -55,10 +56,10 @@ dockers_v2:
       - linux/arm64
 
 nfpms:
-  - license: MIT
-    maintainer: Disney Streaming Services
+  - license: Apache-2.0
+    maintainer: bpal410
     description: Helper tools for AWS Systems Manager.
-    homepage: https://github.com/disneystreaming/ssm-helpers
+    homepage: https://github.com/bpal410/ssm-helpers
     suggests:
       - awscli
       - session-manager-plugin
