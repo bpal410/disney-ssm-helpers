@@ -127,8 +127,17 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 
 			if len(addressList) > 0 {
 				hr := resolver.NewHostnameResolver(addressList)
-				ids, _ := hr.ResolveToInstanceId(ctx, ec2Client)
+				ids, err := hr.ResolveToInstanceId(ctx, ec2Client)
+				if err != nil {
+					log.Errorf("Could not resolve addresses to instances for %s in %s\n%v", sess.ProfileName, sess.Region(), err)
+				}
 				threadLocalInstanceList = append(threadLocalInstanceList, ids...)
+
+				// Without any instance IDs the search below would match every instance in the account
+				if len(threadLocalInstanceList) == 0 {
+					log.Debugf("No instances match the given addresses for %s in %s, skipping", sess.ProfileName, sess.Region())
+					return
+				}
 			}
 
 			// Create our instance input object (filters, instances)
