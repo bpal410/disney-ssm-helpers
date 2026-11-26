@@ -30,6 +30,10 @@ type CommandAPI interface {
 // invocationPollInterval is how long to wait between checks of a running command's status
 var invocationPollInterval = 2 * time.Second
 
+// maxConsecutiveReadinessErrors stops readiness checks for a profile/region after this many
+// errors in a row, which usually means a permissions problem rather than a bad instance
+const maxConsecutiveReadinessErrors = 3
+
 // CreateSSMDescribeInstanceInput returns an *ssm.DescribeInstanceInformationInput object for use when calling the DescribeInstanceInformation() method
 func CreateSSMDescribeInstanceInput(filters map[string]string, instances CommaSlice) *ssm.DescribeInstanceInformationInput {
 	var iisFilters []ssmtypes.InstanceInformationStringFilter
@@ -161,47 +165,52 @@ func addError(results *invocation.ResultSafe, session *session.Session, err erro
 	})
 }
 
-// CheckInstanceReadiness iterates through a list of instances and verifies whether or not it is start-session capable. If it is, it appends the instance info to an instances.InstanceInfoSafe slice.
+// CheckInstanceReadiness checks, in order, whether each instance is ready for a session, and adds
+// up to limit ready instances (with their EC2 tags, where they have them) to readyInstancePool.
 func CheckInstanceReadiness(ctx context.Context, sess *session.Session, ssmClient startsession.ConnectionStatusAPI, ec2Client ec2.DescribeInstancesAPIClient, instanceList []ssmtypes.InstanceInformation, limit int, readyInstancePool *instance.InstanceInfoSafe) {
 	var readyInstances, ec2Instances []string
-	var instanceCount int
+	consecutiveErrors := 0
 
 	for _, i := range instanceList {
-		if instanceCount >= limit {
-			continue
+		if len(readyInstances) >= limit {
+			break
 		}
 
 		instanceID := aws.ToString(i.InstanceId)
 
 		// Check and see if our instance supports start-session
 		ready, err := startsession.CheckSessionReadiness(ctx, ssmClient, instanceID)
-		if !ready && err != nil {
-			sess.Logger.Error(fmt.Errorf("Error when trying to check session readiness for instance %v\n%v", instanceID, err))
-			return
+		if err != nil {
+			sess.Logger.Errorf("Error when trying to check session readiness for instance %v\n%v", instanceID, err)
+
+			if consecutiveErrors++; consecutiveErrors >= maxConsecutiveReadinessErrors {
+				sess.Logger.Errorf("Skipping remaining readiness checks for %s in %s after %d errors in a row", sess.ProfileName, sess.Region(), consecutiveErrors)
+				break
+			}
+			continue
+		}
+		consecutiveErrors = 0
+
+		if !ready {
+			sess.Logger.Debugf("Instance %s is not connected to SSM, skipping", instanceID)
+			continue
 		}
 
-		// Instances that are verified as being ready for sessions
 		readyInstances = append(readyInstances, instanceID)
 
-		// EC2 instances are all non-managed, so let's create a slice of instances that have fetchable tags
+		// Managed (mi-) instances are not EC2 instances, so only EC2 instances have tags to fetch
 		if !strings.HasPrefix(instanceID, "mi-") {
 			ec2Instances = append(ec2Instances, instanceID)
 		}
-
-		instanceCount++
 	}
 
-	// If the instance is good, let's get the tags to display during instance selection
+	// Get the tags to display during instance selection
 	instanceInfo, err := ec2helpers.GetEC2InstanceInfo(ctx, ec2Client, ec2Instances)
 	if err != nil {
 		sess.Logger.Error(err)
 	}
 
-	if limit > len(readyInstances) {
-		limit = len(readyInstances)
-	}
-
-	for idx, id := range readyInstances[:limit] {
+	for idx, id := range readyInstances {
 		// Append our instance info to the master list
 		addInstanceInfo(id, instanceInfo[idx], readyInstancePool, sess.ProfileName, sess.Region())
 	}

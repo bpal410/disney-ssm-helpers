@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -30,9 +31,7 @@ func CheckSessionReadiness(ctx context.Context, client ConnectionStatusAPI, inst
 		return false, err
 	}
 
-	if output.Status == ssmtypes.ConnectionStatusNotConnected {
-		return false, nil
-	}
-
-	return true, nil
+	// The API returns "connected"/"notconnected", while older SDK models (and some
+	// docs) capitalise them, so compare without regard to case
+	return strings.EqualFold(string(output.Status), string(ssmtypes.ConnectionStatusConnected)), nil
 }

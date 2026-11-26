@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,6 +28,14 @@ func testSession() *session.Session {
 		Config:      aws.Config{Region: "us-east-1"},
 		ProfileName: "testprofile",
 	}
+}
+
+func instanceInfoList(ids ...string) []ssmtypes.InstanceInformation {
+	list := make([]ssmtypes.InstanceInformation, 0, len(ids))
+	for _, id := range ids {
+		list = append(list, ssmtypes.InstanceInformation{InstanceId: aws.String(id)})
+	}
+	return list
 }
 
 func newPool() *instance.InstanceInfoSafe {
@@ -72,6 +81,74 @@ func TestAddInstanceInfo(t *testing.T) {
 	assert.Equal(id, ip.AllInstances[id].InstanceID)
 	assert.Equal("vpc-123", ip.AllInstances[id].VpcId)
 	assert.Equal(map[string]string{"foo": "1", "bar": "2"}, ip.AllInstances[id].Tags)
+}
+
+func TestCheckInstanceReadiness(t *testing.T) {
+	ctx := context.Background()
+	sess := testSession()
+
+	t.Run("instances that are not connected are left out", func(t *testing.T) {
+		ssmClient := &mocks.MockSSMClient{ConnectionStatus: map[string]ssmtypes.ConnectionStatus{
+			"i-456": ssmtypes.ConnectionStatusNotConnected,
+		}}
+		pool := newPool()
+
+		CheckInstanceReadiness(ctx, sess, ssmClient, &mocks.MockEC2Client{}, instanceInfoList("i-123", "i-456", "i-789"), 10, pool)
+
+		assert.Len(t, pool.AllInstances, 2)
+		assert.Contains(t, pool.AllInstances, "i-123")
+		assert.Contains(t, pool.AllInstances, "i-789")
+		assert.NotContains(t, pool.AllInstances, "i-456")
+	})
+
+	t.Run("connection status is compared without regard to case", func(t *testing.T) {
+		ssmClient := &mocks.MockSSMClient{ConnectionStatus: map[string]ssmtypes.ConnectionStatus{
+			"i-123": "Connected",
+			"i-456": "NotConnected",
+		}}
+		pool := newPool()
+
+		CheckInstanceReadiness(ctx, sess, ssmClient, &mocks.MockEC2Client{}, instanceInfoList("i-123", "i-456"), 10, pool)
+
+		assert.Len(t, pool.AllInstances, 1)
+		assert.Contains(t, pool.AllInstances, "i-123")
+	})
+
+	t.Run("limit counts ready instances only", func(t *testing.T) {
+		ssmClient := &mocks.MockSSMClient{ConnectionStatus: map[string]ssmtypes.ConnectionStatus{
+			"i-123": ssmtypes.ConnectionStatusNotConnected,
+		}}
+		pool := newPool()
+
+		CheckInstanceReadiness(ctx, sess, ssmClient, &mocks.MockEC2Client{}, instanceInfoList("i-123", "i-456", "i-789"), 1, pool)
+
+		assert.Len(t, pool.AllInstances, 1)
+		assert.Contains(t, pool.AllInstances, "i-456")
+	})
+
+	t.Run("one failed check skips only that instance", func(t *testing.T) {
+		ssmClient := &mocks.MockSSMClient{ConnectionErrors: map[string]error{
+			"i-456": mocks.NewAPIError("InvalidInstanceId", "bad instance"),
+		}}
+		pool := newPool()
+
+		CheckInstanceReadiness(ctx, sess, ssmClient, &mocks.MockEC2Client{}, instanceInfoList("i-123", "i-456", "i-789"), 10, pool)
+
+		assert.Len(t, pool.AllInstances, 2)
+		assert.NotContains(t, pool.AllInstances, "i-456")
+	})
+
+	t.Run("repeated failures stop the checks", func(t *testing.T) {
+		denied := mocks.NewAPIError("AccessDeniedException", "denied")
+		ssmClient := &mocks.MockSSMClient{ConnectionErrors: map[string]error{
+			"i-1": denied, "i-2": denied, "i-3": denied,
+		}}
+		pool := newPool()
+
+		CheckInstanceReadiness(ctx, sess, ssmClient, &mocks.MockEC2Client{}, instanceInfoList("i-1", "i-2", "i-3", "i-123"), 10, pool)
+
+		assert.Empty(t, pool.AllInstances)
+	})
 }
 
 func TestRunInvocations(t *testing.T) {
