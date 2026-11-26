@@ -9,10 +9,8 @@
 	// Required for the Delve debugger (dlv).
 	"capAdd": ["SYS_PTRACE"],
 	"securityOpt": ["seccomp=unconfined"],
-	// Your host AWS config/credentials, read-only. Must exist on the host
-	// (~/.aws) or the container will fail to start.
 	"mounts": [
-		"source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,readonly"
+		"source=${env:HOME}${env:USERPROFILE}/.aws,target=/home/vscode/.aws,type=bind"
 	],
 	"postCreateCommand": "go mod download",
 	"customizations": {
