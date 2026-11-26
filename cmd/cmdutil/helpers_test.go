@@ -223,6 +223,17 @@ func TestAddTagFlag(t *testing.T) {
 	})
 }
 
+func TestAddSortTagFlag(t *testing.T) {
+	assert := assert.New(t)
+
+	t.Run("verify flag exists", func(t *testing.T) {
+		cmd := NewTestCmd()
+		AddSortTagFlag(cmd, "Name")
+		assert.NotNil(cmd.Flag("sort-tag"))
+		assert.Equal("Name", cmd.Flag("sort-tag").DefValue)
+	})
+}
+
 func TestAddSessionNameFlag(t *testing.T) {
 	assert := assert.New(t)
 

@@ -3,7 +3,7 @@ package ssm
 import (
 	"fmt"
 
-	"github.com/disneystreaming/ssm-helpers/util"
+	"github.com/bpal410/ssm-helpers/util"
 )
 
 // ListSlice is for standard Var flag usage

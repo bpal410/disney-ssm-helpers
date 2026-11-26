@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/disneystreaming/ssm-helpers/cmd"
+	"github.com/bpal410/ssm-helpers/cmd"
 )
 
 func main() {

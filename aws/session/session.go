@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/disneystreaming/ssm-helpers/aws/config"
+	"github.com/bpal410/ssm-helpers/aws/config"
 )
 
 // NewPool is used to create a pool of AWS sessions with different profile/region permutations

@@ -10,11 +10,11 @@ import (
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/aws/aws-sdk-go/service/ssm/ssmiface"
 
-	"github.com/disneystreaming/ssm-helpers/aws/session"
-	ec2helpers "github.com/disneystreaming/ssm-helpers/ec2"
-	"github.com/disneystreaming/ssm-helpers/ssm/instance"
-	"github.com/disneystreaming/ssm-helpers/ssm/invocation"
-	startsession "github.com/disneystreaming/ssm-helpers/ssm/session"
+	"github.com/bpal410/ssm-helpers/aws/session"
+	ec2helpers "github.com/bpal410/ssm-helpers/ec2"
+	"github.com/bpal410/ssm-helpers/ssm/instance"
+	"github.com/bpal410/ssm-helpers/ssm/invocation"
+	startsession "github.com/bpal410/ssm-helpers/ssm/session"
 )
 
 // CreateSSMDescribeInstanceInput returns an *ssm.DescribeInstanceInformationInput object for use when calling the DescribeInstanceInformation() method

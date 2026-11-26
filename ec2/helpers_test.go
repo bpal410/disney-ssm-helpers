@@ -6,7 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/stretchr/testify/assert"
 
-	mocks "github.com/disneystreaming/ssm-helpers/testing"
+	mocks "github.com/bpal410/ssm-helpers/testing"
 )
 
 func TestGetEC2InstanceTags(t *testing.T) {

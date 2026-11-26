@@ -9,10 +9,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	awsx "github.com/disneystreaming/ssm-helpers/aws"
-	"github.com/disneystreaming/ssm-helpers/cmd/cmdutil"
-	"github.com/disneystreaming/ssm-helpers/cmd/logutil"
-	"github.com/disneystreaming/ssm-helpers/util"
+	awsx "github.com/bpal410/ssm-helpers/aws"
+	"github.com/bpal410/ssm-helpers/cmd/cmdutil"
+	"github.com/bpal410/ssm-helpers/cmd/logutil"
+	"github.com/bpal410/ssm-helpers/ssm/instance"
+	"github.com/bpal410/ssm-helpers/util"
 )
 
 func addBaseFlags(cmd *cobra.Command) {
@@ -34,6 +35,7 @@ func addRunFlags(cmd *cobra.Command) {
 
 func addSessionFlags(cmd *cobra.Command) {
 	cmdutil.AddTagFlag(cmd)
+	cmdutil.AddSortTagFlag(cmd, instance.NameTag)
 	cmdutil.AddAttributeFlag(cmd)
 	cmdutil.AddSessionNameFlag(cmd, "ssm-session")
 	cmdutil.AddLimitFlag(cmd, 10, "Set a limit for the number of instance results returned per profile/region combination.")

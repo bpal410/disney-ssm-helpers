@@ -44,7 +44,7 @@ If a region is not specified, you will receive the following warning, but execut
 WARNING No AWS region setting found. Will default to the region linked to any profile in use.
 ```
 
-Any number of tags can be specified using multiple `-t` flags. The instance data for that tag will be displayed as an additional column in the selection dialog if multiple instances are found. Columns for Instance ID, Region, and Profile are always displayed.
+Any number of tags can be specified using multiple `-t` flags. The instance data for that tag will be displayed as an additional column in the selection dialog. Columns for Instance ID, Name (the instance's `Name` tag), Region, and Profile are always displayed. Instances are listed in order of their Name, with unnamed instances last; use `--sort-tag` to sort by a different tag (for example `--sort-tag env`), which is then shown as a column too.
 
 #### connecting to a single instance
 
@@ -62,15 +62,15 @@ By default, if no instance or filters are specified, `ssm session` will target a
 > ssm session
 
 INFO    Retrieved 7 usable instances.
-       Instance ID   Region Profile
+       Instance ID  Name       Region     Profile
 ? Select the instances to which you want to connect:  [Use arrows to move, space to select, type to filter]
-> [ ]  i-0d770cb     us-east-1  profile1
-  [ ]  i-0b75ad5     us-east-1  profile1
-  [ ]  i-0fb5f18     us-east-1  profile1
-  [ ]  i-01e6823     us-east-1  profile1
-  [ ]  i-0ab2a85     us-east-1  profile1
-  [ ]  i-0d3558e     us-east-1  profile1
-  [ ]  i-026a8f0     us-east-1  profile1
+> [ ]  i-0d3558e    bastion    us-east-1  profile1
+  [ ]  i-0ab2a85    db-1       us-east-1  profile1
+  [ ]  i-0d770cb    web-1      us-east-1  profile1
+  [ ]  i-0b75ad5    web-2      us-east-1  profile1
+  [ ]  i-0fb5f18    worker-1   us-east-1  profile1
+  [ ]  i-01e6823    worker-2   us-east-1  profile1
+  [ ]  i-026a8f0               us-east-1  profile1
 ```
 
 #### searching for instances with tag-based filters
@@ -81,14 +81,14 @@ Tag-based filtering can also be applied to your search results (including if you
 > ssm session -p profile1 -f env=prod -f app=myapp
 
 INFO    Retrieved 6 usable instances.
-       Instance ID  Region     Profile
+       Instance ID  Name     Region     Profile
 ? Select the instances to which you want to connect:  [Use arrows to move, space to select, type to filter]
-> [ ]  i-7268418e   us-east-1  profile1
-  [ ]  i-7b6f4687   us-east-1  profile1
-  [ ]  i-9cdd364a   us-east-1  profile1
-  [ ]  i-ccdc371a   us-east-1  profile1
-  [ ]  i-1289eeef   us-east-1  profile1
-  [ ]  i-2f96f1d2   us-east-1  profile1
+> [ ]  i-7268418e   myapp-1  us-east-1  profile1
+  [ ]  i-7b6f4687   myapp-2  us-east-1  profile1
+  [ ]  i-9cdd364a   myapp-3  us-east-1  profile1
+  [ ]  i-ccdc371a   myapp-4  us-east-1  profile1
+  [ ]  i-1289eeef   myapp-5  us-east-1  profile1
+  [ ]  i-2f96f1d2   myapp-6  us-east-1  profile1
 ```
 
 If we add those columns to the instance list using the `-t` option, we can see the effect in practice:
@@ -97,14 +97,14 @@ If we add those columns to the instance list using the `-t` option, we can see t
 > ssm session -p profile1 -f env=prod -f app=myapp -t app -t env
 
 INFO    Retrieved 6 usable instances.
-       Instance ID  Region     Profile   app    env
-? Select the instances to which you want to connect:  [Use arrows to move, space to select, type to filter]:
-  [ ]  i-7b6f4687   us-east-1  profile1 myapp  prod
-  [ ]  i-7b6f4687   us-east-1  profile1 myapp  prod
-  [ ]  i-9cdd364a   us-east-1  profile1 myapp  prod
-  [ ]  i-ccdc371a   us-east-1  profile1 myapp  prod
-  [ ]  i-1289eeef   us-east-1  profile1 myapp  prod
-  [ ]  i-2f96f1d2   us-east-1  profile1 myapp  prod
+       Instance ID  Name     Region     Profile   app    env
+? Select the instances to which you want to connect:  [Use arrows to move, space to select, type to filter]
+> [ ]  i-7268418e   myapp-1  us-east-1  profile1  myapp  prod
+  [ ]  i-7b6f4687   myapp-2  us-east-1  profile1  myapp  prod
+  [ ]  i-9cdd364a   myapp-3  us-east-1  profile1  myapp  prod
+  [ ]  i-ccdc371a   myapp-4  us-east-1  profile1  myapp  prod
+  [ ]  i-1289eeef   myapp-5  us-east-1  profile1  myapp  prod
+  [ ]  i-2f96f1d2   myapp-6  us-east-1  profile1  myapp  prod
 ```
 
 #### searching for instances in multiple accounts and/or regions
@@ -113,16 +113,16 @@ INFO    Retrieved 6 usable instances.
 > ssm session -p profile1 -r us-east-1,us-west-2
 
 INFO    Retrieved 9 usable instances.
-       Instance ID          Region     Profile
+       Instance ID          Name      Region     Profile
 ? Select the instances to which you want to connect:  [Use arrows to move, space to select, type to filter]
-> [ ]  i-0d770cb81ae0fc316      us-east-1  profile1
-  [ ]  i-0b75ad53689daabf8      us-east-1  profile1
-  [ ]  i-0f267dedb9a979fd1      us-west-2  profile1
-  [ ]  i-0fb5f186125becc0d      us-east-1  profile1
-  [ ]  i-01e6823b89fd224b2      us-east-1  profile1
-  [ ]  i-0ab2a8562dda37865      us-east-1  profile1
-  [ ]  i-0d3558e702b02e3dc      us-east-1  profile1
-  [ ]  i-026a8f0ed1ace92aa      us-east-1  profile1
+> [ ]  i-0d3558e702b02e3dc  bastion   us-east-1  profile1
+  [ ]  i-0ab2a8562dda37865  db-1      us-east-1  profile1
+  [ ]  i-0d770cb81ae0fc316  web-1     us-east-1  profile1
+  [ ]  i-0b75ad53689daabf8  web-2     us-east-1  profile1
+  [ ]  i-0f267dedb9a979fd1  web-3     us-west-2  profile1
+  [ ]  i-0fb5f186125becc0d  worker-1  us-east-1  profile1
+  [ ]  i-01e6823b89fd224b2  worker-2  us-east-1  profile1
+  [ ]  i-026a8f0ed1ace92aa            us-east-1  profile1
 ```
 
 ### usage flags
@@ -160,6 +160,8 @@ INFO    Retrieved 9 usable instances.
         Please be careful.
     --session-name string
         Specify a name for the tmux session created when multiple instances are selected (default "ssm-session")
+    --sort-tag string
+        Sort the instance selection prompt by the value of this tag (case-insensitive); instances without it are listed last. The tag is shown as a column. (default "Name")
     -t, --tag strings
         Adds the specified tag as an additional column to be displayed during the instance selection prompt.
     --attributes strings

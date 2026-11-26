@@ -17,13 +17,12 @@ import (
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/spf13/cobra"
 
-	"github.com/disneystreaming/gomux"
-
-	"github.com/disneystreaming/ssm-helpers/aws/resolver"
-	"github.com/disneystreaming/ssm-helpers/aws/session"
-	"github.com/disneystreaming/ssm-helpers/cmd/cmdutil"
-	ssmx "github.com/disneystreaming/ssm-helpers/ssm"
-	"github.com/disneystreaming/ssm-helpers/ssm/instance"
+	"github.com/bpal410/ssm-helpers/aws/resolver"
+	"github.com/bpal410/ssm-helpers/aws/session"
+	"github.com/bpal410/ssm-helpers/cmd/cmdutil"
+	"github.com/bpal410/ssm-helpers/internal/tmux"
+	ssmx "github.com/bpal410/ssm-helpers/ssm"
+	"github.com/bpal410/ssm-helpers/ssm/instance"
 )
 
 func newCommandSSMSession() *cobra.Command {
@@ -83,6 +82,11 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 
 	var dryRunFlag bool
 	if dryRunFlag, err = cmdutil.GetFlagBool(cmd, "dry-run"); err != nil {
+		log.Fatal(err)
+	}
+
+	var sortTag string
+	if sortTag, err = cmdutil.GetFlagString(cmd, "sort-tag"); err != nil {
 		log.Fatal(err)
 	}
 
@@ -148,8 +152,9 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Single instance specified or found, starting session in current terminal (non-multiplexed)
-	if len(instancePool.AllInstances) == 1 {
+	// Single instance specified with --instance, starting session in current terminal (non-multiplexed).
+	// A single instance found by searching goes to the selection prompt instead, so the user can confirm it.
+	if len(instanceList) == 1 && len(instancePool.AllInstances) == 1 {
 		for _, v := range instancePool.AllInstances {
 			if err := startSSMSession(v.Profile, v.Region, v.InstanceID); err != nil {
 				log.Errorf("Failed to start ssm-session for instance %s\n%s", v.InstanceID, err)
@@ -158,6 +163,8 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	var tmuxSession *tmux.Session
+
 	// Multiple instances specified or found, check to see if we're in a tmux session to avoid nesting
 	if len(instanceList) > 1 && len(instancePool.AllInstances) > 1 {
 		var instances []instance.InstanceInfo
@@ -165,12 +172,12 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 			instances = append(instances, v)
 		}
 
-		if err := configTmuxSession(sessionName, instances); err != nil {
+		if tmuxSession, err = configTmuxSession(sessionName, instances); err != nil {
 			log.Fatal(err)
 		}
 	} else {
 		// If -i was not specified, go to a selection prompt before starting sessions
-		selectedInstances, err := startSelectionPrompt(&instancePool, totalInstances, tagList, attributeList)
+		selectedInstances, err := startSelectionPrompt(&instancePool, totalInstances, sortTag, tagList, attributeList)
 		if err != nil {
 			if err == terminal.InterruptErr {
 				log.Info("Instance selection interrupted.")
@@ -182,14 +189,14 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 
 		// If only one instance was selected, don't bother with a tmux session
 		if len(selectedInstances) == 1 {
-			for _, v := range selectedInstances {
-				if err := startSSMSession(v.Profile, v.Region, v.InstanceID); err != nil {
-					log.Fatalf("Failed to start session for instance %s\n%s", v.InstanceID, err)
-				}
+			v := selectedInstances[0]
+			if err := startSSMSession(v.Profile, v.Region, v.InstanceID); err != nil {
+				log.Fatalf("Failed to start session for instance %s\n%s", v.InstanceID, err)
 			}
+			return
 		}
 
-		if err = configTmuxSession(sessionName, selectedInstances); err != nil {
+		if tmuxSession, err = configTmuxSession(sessionName, selectedInstances); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -197,71 +204,59 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 	// Make sure we aren't going to nest tmux sessions
 	currentTmuxSocket := os.Getenv("TMUX")
 	if len(currentTmuxSocket) == 0 {
-		if err := attachTmuxSession(sessionName); err != nil {
-			log.Errorf("Could not attach to tmux session '%s'\n%s", sessionName, err)
+		if err := tmuxSession.Attach(); err != nil {
+			log.Errorf("Could not attach to tmux session '%s'\n%s", tmuxSession.Name, err)
 		}
 	} else {
 		log.Info("To force nested tmux sessions, unset $TMUX.")
-		log.Infof("Attach to the session with `tmux attach -t %s`", sessionName)
+		log.Infof("Attach to the session with `tmux attach -t '=%s'`", tmuxSession.Name)
 	}
 }
 
-func configTmuxSession(sessionName string, selectedInstances []instance.InstanceInfo) (err error) {
-	// Initialize our tmux session
-	tmuxSession, err := gomux.NewSession(sessionName)
+func configTmuxSession(sessionName string, selectedInstances []instance.InstanceInfo) (*tmux.Session, error) {
+	// Create the session (replacing any existing one with the same name) and
+	// the window in which our ssm session panes will live. The window starts
+	// with one empty pane, which we split from and remove at the end.
+	tmuxSession, emptyPane, err := tmux.NewSession(sessionName, "ssm")
 	if err != nil {
-		return fmt.Errorf("Failed to create tmux session\n%s", err)
-	}
-
-	// Create the window in which our ssm session panes will live
-	tmuxWindow, err := tmuxSession.AddWindow("ssm")
-	if err != nil {
-		return fmt.Errorf("Failed to create tmux window\n%s", err)
+		return nil, fmt.Errorf("Failed to create tmux session\n%s", err)
 	}
 
 	// Configure our session-specific settings
-	configList := []string{
-		"set-option -t " + sessionName + " pane-border-status top",
-		"set-option -t " + sessionName + " mouse on",
+	options := [][2]string{
+		{"pane-border-status", "top"},
+		{"mouse", "on"},
 	}
 
-	for _, v := range configList {
-		if err = tmuxSession.Windows[0].SetConfig(v); err != nil {
-			return fmt.Errorf("Failed to set tmux configuration for window\n%s", err)
+	for _, o := range options {
+		if err = tmuxSession.SetOption(o[0], o[1]); err != nil {
+			return nil, fmt.Errorf("Failed to set tmux option %s\n%s", o[0], err)
 		}
 	}
 
-	// Multiple instances specified or found, starting tmux session and attaching current terminal to it
+	// Add a pane per instance, each below the previous one so they stay in order
+	lastPane := emptyPane
 	for _, v := range selectedInstances {
-		// Add a window for our instance to our tmux session
-		if err = addInstanceToTmuxWindow(tmuxWindow, v.Profile, v.Region, v.InstanceID); err != nil {
-			return fmt.Errorf("Failed to add instance %s to tmux session\n%s", v.InstanceID, err)
+		if lastPane, err = addInstanceToTmuxWindow(lastPane, v.Profile, v.Region, v.InstanceID); err != nil {
+			return nil, fmt.Errorf("Failed to add instance %s to tmux session\n%s", v.InstanceID, err)
 		}
 
-		// Re-tile our layout after each window to avoid the "pane too small" error
-		if err = tmuxWindow.SetConfig("select-layout -t " + sessionName + " tiled"); err != nil {
-			return fmt.Errorf("Failed to re-tile panes\n%s", err)
+		// Re-tile our layout after each pane to avoid the "pane too small" error
+		if err = tmuxSession.Tile(); err != nil {
+			return nil, fmt.Errorf("Failed to re-tile panes\n%s", err)
 		}
 	}
 
-	// Don't kill window 0 of our current session if we're already in a session
-	currentTmuxSocket := os.Getenv("TMUX")
-	if len(currentTmuxSocket) == 0 {
-		if err = tmuxWindow.KillPane(0); err != nil {
-			return fmt.Errorf("Failed to remove empty pane at index 0\n%s", err)
-		}
+	if err = emptyPane.Kill(); err != nil {
+		return nil, fmt.Errorf("Failed to remove empty pane\n%s", err)
 	}
+
 	// Re-tile our layout one last time since we removed the empty pane
-	if err = tmuxWindow.SetConfig("select-layout -t " + sessionName + " tiled"); err != nil {
-		return fmt.Errorf("Failed to re-tile panes\n%s", err)
+	if err = tmuxSession.Tile(); err != nil {
+		return nil, fmt.Errorf("Failed to re-tile panes\n%s", err)
 	}
 
-	return
-}
-
-func setSessionStatus(sessionName string, status string) (err error) {
-	rawCmd := exec.Command("tmux", "set-option", "-t", sessionName, "status-left", status)
-	return rawCmd.Run()
+	return tmuxSession, nil
 }
 
 func startSSMSession(profile string, region string, instanceID string) error {
@@ -299,33 +294,25 @@ func startSSMSession(profile string, region string, instanceID string) error {
 	}
 }
 
-func attachTmuxSession(sessionName string) (err error) {
-	// If we don't redirect these, our console will detach when ssm-session finishes executing.
-	rawCmd := exec.Command("tmux", "attach", "-t", sessionName)
-	rawCmd.Stdin = os.Stdin
-	rawCmd.Stdout = os.Stdout
-	rawCmd.Stderr = os.Stderr
-
-	return rawCmd.Run()
-}
-
-func addInstanceToTmuxWindow(tmuxWindow *gomux.Window, profile string, region string, instanceID string) (err error) {
-	tPane, err := tmuxWindow.Pane(0).Split()
+// addInstanceToTmuxWindow splits a new pane below the given one and starts an
+// SSM session to the instance in it.
+func addInstanceToTmuxWindow(below tmux.Pane, profile string, region string, instanceID string) (tmux.Pane, error) {
+	pane, err := below.Split()
 	if err != nil {
-		return err
+		return tmux.Pane{}, err
 	}
 
-	if err = tPane.SetName(instanceID); err != nil {
-		return err
+	if err = pane.SetTitle(instanceID); err != nil {
+		return tmux.Pane{}, err
 	}
 
-	return tPane.Exec(fmt.Sprintf("aws ssm start-session --profile %s --region %s --target %s", profile, region, instanceID))
+	return pane, pane.SendLine(fmt.Sprintf("aws ssm start-session --profile %s --region %s --target %s", profile, region, instanceID))
 }
 
-func startSelectionPrompt(instances *instance.InstanceInfoSafe, totalInstances int32, tags, attributes ssmx.ListSlice) (selectedInstances []instance.InstanceInfo, err error) {
+func startSelectionPrompt(instances *instance.InstanceInfoSafe, totalInstances int32, sortTag string, tags, attributes ssmx.ListSlice) (selectedInstances []instance.InstanceInfo, err error) {
 	instanceIDList := []string{}
 	fields := append([]string(tags), []string(attributes)...)
-	promptList := instances.FormatStringSlice(fields...)
+	promptList := instances.FormatStringSlice(sortTag, fields...)
 	fmt.Println("      ", promptList[0])
 
 	prompt := &survey.MultiSelect{

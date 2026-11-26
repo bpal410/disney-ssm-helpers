@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/stretchr/testify/assert"
 
-	mocks "github.com/disneystreaming/ssm-helpers/testing"
+	mocks "github.com/bpal410/ssm-helpers/testing"
 )
 
 func TestGetResult(t *testing.T) {

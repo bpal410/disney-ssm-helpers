@@ -32,7 +32,7 @@ We welcome PRs for code changes but please keep in mind that the maintainers are
 ### Releasing
 
 ssm-helpers uses tag based [semantic versioned](https://semver.org/) (semver) releases.
-This means that if you push a tag named `v1.0.0` it will make a new [release](https://github.com/disneystreaming/ssm-helpers/releases) and build installation packages. It uses [Github Actions](https://github.com/features/actions) for CI and [goreleaser](https://goreleaser.com/) for CD.
+This means that if you push a tag named `v1.0.0` it will make a new [release](https://github.com/bpal410/ssm-helpers/releases) and build installation packages. It uses [Github Actions](https://github.com/features/actions) for CI and [goreleaser](https://goreleaser.com/) for CD.
 
 ### Dependencies
 
@@ -40,6 +40,5 @@ Each binary declares their own dependencies you can declare in the `main.go` fil
 Dependencies are managed with `go mod` for local development and package releases.
 
 Some special dependencies you may want to be aware of are:
-  * [gomux](https://github.com/disneystreaming/gomux) library for managing tmux sessions with `ssm-session`
-  * [go-ssm-helpers](https://github.com/disneystreaming/go-ssm-helpers) library for interacting with the AWS SSM API. **for v0.\*.\* releases**
-  * [aws-session-manager-plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) The `brew install` method will install the AWS Session Manager plugin but that code is not open sourced and your computer will pull the releases directly from AWS. Updates to the plugin should PR the [homebrew-tap](https://github.com/disneystreaming/homebrew-tap/blob/master/Formula/aws-session-manager-plugin.rb#L4) repository.
+  * [tmux](https://github.com/tmux/tmux) must be installed to open sessions to multiple instances with `ssm session`; it is driven through [internal/tmux](../internal/tmux)
+  * [aws-session-manager-plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) must be installed separately; it is not open sourced and is downloaded directly from AWS. The Docker image bundles it.

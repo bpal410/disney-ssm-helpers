@@ -6,7 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/client"
 
-	"github.com/disneystreaming/ssm-helpers/util/httpx"
+	"github.com/bpal410/ssm-helpers/util/httpx"
 )
 
 // NewDefaultConfig will return default AWS Configs that are meant to be
