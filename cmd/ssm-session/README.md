@@ -44,7 +44,7 @@ If a region is not specified, you will receive the following warning, but execut
 WARNING No AWS region setting found. Will default to the region linked to any profile in use.
 ```
 
-Any number of tags can be specified using multiple `-t` flags. The instance data for that tag will be displayed as an additional column in the selection dialog if multiple instances are found. Columns for Instance ID, Region, and Profile are always displayed.
+Any number of tags can be specified using multiple `-t` flags. The instance data for that tag will be displayed as an additional column in the selection dialog. Columns for Instance ID, Region, and Profile are always displayed.
 
 #### connecting to a single instance
 

@@ -147,8 +147,9 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Single instance specified or found, starting session in current terminal (non-multiplexed)
-	if len(instancePool.AllInstances) == 1 {
+	// Single instance specified with --instance, starting session in current terminal (non-multiplexed).
+	// A single instance found by searching goes to the selection prompt instead, so the user can confirm it.
+	if len(instanceList) == 1 && len(instancePool.AllInstances) == 1 {
 		for _, v := range instancePool.AllInstances {
 			if err := startSSMSession(v.Profile, v.Region, v.InstanceID); err != nil {
 				log.Errorf("Failed to start ssm-session for instance %s\n%s", v.InstanceID, err)
