@@ -24,9 +24,9 @@ build: format
 .PHONY: docker
 docker: format
 	@echo "--> building linux binary"
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/ssm main.go
+	GOOS=linux GOARCH=$(GOARCH) CGO_ENABLED=0 go build -o bin/linux/$(GOARCH)/ssm main.go
 	@echo "--> building docker image"
-	@docker build . -f Dockerfile -t $(IMAGE)
+	@docker build bin -f Dockerfile --platform linux/$(GOARCH) -t $(IMAGE)
 
 .PHONY: clean
 clean:
@@ -76,7 +76,7 @@ tools: tools.goimports tools.golint tools.govet
 tools.goimports:
 	@command -v goimports >/dev/null ; if [ $$? -ne 0 ]; then \
 		echo "--> installing goimports"; \
-		go get golang.org/x/tools/cmd/goimports; \
+		go install golang.org/x/tools/cmd/goimports@latest; \
 	fi
 
 tools.govet:
@@ -88,5 +88,5 @@ tools.govet:
 tools.golint:
 	@command -v golint >/dev/null ; if [ $$? -ne 0 ]; then \
 		echo "--> installing golint"; \
-		go get -u golang.org/x/lint/golint; \
+		go install golang.org/x/lint/golint@latest; \
 	fi

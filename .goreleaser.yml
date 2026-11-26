@@ -1,4 +1,7 @@
-release:
+version: 2
+
+# Keep artifact names stable regardless of the repository (fork) name.
+project_name: ssm-helpers
 
 before:
   hooks:
@@ -6,62 +9,50 @@ before:
     - make test
 
 builds:
-- id: ssm
-  main: ./main.go
-  binary: ssm
-  goos:
-    - windows
-    - darwin
-    - linux
-  goarch:
-    - amd64
-  env:
-    - CGO_ENABLED=0
-  ldflags:
-    - -s -w -X 'github.com/disneystreaming/ssm-helpers/cmd.version={{.Version}}' -X 'github.com/disneystreaming/ssm-helpers/cmd.commit={{.Commit}}'
+  - id: ssm
+    main: ./main.go
+    binary: ssm
+    goos:
+      - windows
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X 'github.com/disneystreaming/ssm-helpers/cmd.version={{.Version}}' -X 'github.com/disneystreaming/ssm-helpers/cmd.commit={{.Commit}}'
 
 archives:
-- builds:
-  - ssm
-  replacements:
-    darwin: Darwin
-    linux: Linux
-    windows: Windows
-    amd64: x86_64
-  format: tar.gz
-  format_overrides:
-    - goos: windows
-      format: zip
-
-brews:
-- tap:
-    owner: disneystreaming
-    name: homebrew-ssm-helpers
-  homepage: "https://github.com/disneystreaming/ssm-helpers"
-  description: "Help manage systems with AWS Systems Manager with management helpers."
-  folder: Formula
-  dependencies:
-    - tmux
-    - awscli
-    - disneystreaming/tap/aws-session-manager-plugin
-  install: |
-    bin.install "ssm"
-    bin.install_symlink  bin/"ssm" => "ssm-helpers"
-
-dockers:
   - ids:
-    - ssm
-    goos: linux
+      - ssm
+    # Same names as before, e.g. ssm-helpers_1.2.3_Darwin_x86_64.tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+# Published to GitHub Container Registry under the owner of the repository
+# running the release, using the workflow's GITHUB_TOKEN.
+dockers_v2:
+  - ids:
+      - ssm
     dockerfile: Dockerfile
-    image_templates:
-    - "docker.pkg.github.com/disneystreaming/ssm-helpers/ssm:latest"
-    - "docker.pkg.github.com/disneystreaming/ssm-helpers/ssm:{{ .Tag }}"
-    - "docker.pkg.github.com/disneystreaming/ssm-helpers/ssm:{{ .Major }}"
-    - "docker.pkg.github.com/disneystreaming/ssm-helpers/ssm:{{ .Major }}.{{ .Minor }}"
-    - "ghcr.io/disneystreaming/ssm:latest"
-    - "ghcr.io/disneystreaming/ssm:{{ .Tag }}"
-    - "ghcr.io/disneystreaming/ssm:{{ .Major }}"
-    - "ghcr.io/disneystreaming/ssm:{{ .Major }}.{{ .Minor }}"
+    images:
+      - "ghcr.io/{{ tolower .Env.GITHUB_REPOSITORY_OWNER }}/ssm"
+    tags:
+      - latest
+      - "{{ .Tag }}"
+      - "{{ .Major }}"
+      - "{{ .Major }}.{{ .Minor }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
 
 nfpms:
   - license: MIT
@@ -79,11 +70,11 @@ checksum:
   name_template: 'checksums.txt'
 
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  version_template: "{{ .Tag }}-next"
 
 changelog:
   sort: asc
   filters:
     exclude:
-    - '^docs:'
-    - '^test:'
+      - '^docs:'
+      - '^test:'

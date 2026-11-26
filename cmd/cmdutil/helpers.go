@@ -214,7 +214,8 @@ func GetMapFromStringSlice(cmd *cobra.Command, flag string) (map[string]string, 
 
 // Reformats CSV params passed via CLI
 // e.g. Input:	["Env=dev", "ElbSecurityGroups=sg-1234", "sg-5678", "App=grafana"]
-// 		Output:	["Env=dev", "ElbSecurityGroups=sg-1234,sg-5678", "App=grafana"]
+//
+//	Output:	["Env=dev", "ElbSecurityGroups=sg-1234,sg-5678", "App=grafana"]
 func squashParamsSlice(slice []string, cmd *cobra.Command) ([]string, error) {
 	sqS := make([]string, 0, len(slice))
 	index := -1

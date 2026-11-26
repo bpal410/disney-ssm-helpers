@@ -1,26 +1,31 @@
 {
-	"name": "Go",
+	"name": "ssm-helpers",
 	"build": {
-		"dockerfile": "Dockerfile",
-		"args": {
-			"VARIANT": "1.18-bullseye",
-			"NODE_VERSION": "lts/*"
+		"dockerfile": "Dockerfile"
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/aws-cli:1": {}
+	},
+	// Required for the Delve debugger (dlv).
+	"capAdd": ["SYS_PTRACE"],
+	"securityOpt": ["seccomp=unconfined"],
+	// Your host AWS config/credentials, read-only. Must exist on the host
+	// (~/.aws) or the container will fail to start.
+	"mounts": [
+		"source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,readonly"
+	],
+	"postCreateCommand": "go mod download",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"anthropic.claude-code",
+				"golang.Go",
+				"ms-vscode.makefile-tools"
+			],
+			"settings": {
+				"go.toolsManagement.checkForUpdates": "local"
+			}
 		}
 	},
-	"runArgs": [
-		"--cap-add=SYS_PTRACE",
-		"--security-opt",
-		"seccomp=unconfined"
-	],
-	// Set *default* container specific settings.json values on container create.
-	"settings": {
-		"go.toolsManagement.checkForUpdates": "local",
-		"go.useLanguageServer": true,
-		"go.gopath": "/go"
-	},
-	// Add the IDs of extensions you want installed when the container is created.
-	"extensions": [
-		"golang.Go"
-	],
 	"remoteUser": "vscode"
 }
