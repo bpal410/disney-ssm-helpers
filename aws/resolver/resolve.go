@@ -1,16 +1,18 @@
 package resolver
 
 import (
+	"context"
 	"fmt"
 	"net"
 
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 // Provides a interface for resolving an instance to a single ec2 instance.
 type InstanceResolver interface {
-	ResolveToInstanceId(client ec2iface.EC2API) ([]string, error)
+	ResolveToInstanceId(ctx context.Context, client ec2.DescribeNetworkInterfacesAPIClient) ([]string, error)
 }
 
 // HostnameResolver attempts to resolve a fqdn or IP to a corresponding instance ID.
@@ -24,37 +26,53 @@ func NewHostnameResolver(addrs []string) *HostnameResolver {
 	}
 }
 
-func (hr *HostnameResolver) ResolveToInstanceId(client ec2iface.EC2API) (output []string, err error) {
-	ips := make([]*string, 1)
+// ResolveToInstanceId returns the IDs of the instances whose network interfaces
+// have one of the resolver's addresses as a private IP. Each instance is listed
+// once, in the order its interface was returned.
+func (hr *HostnameResolver) ResolveToInstanceId(ctx context.Context, client ec2.DescribeNetworkInterfacesAPIClient) ([]string, error) {
+	ips := make([]string, 0, len(hr.addrs))
 	for _, addr := range hr.addrs {
 		ip, err := resolveToFirst(addr)
 		if err != nil {
-			return nil, fmt.Errorf("unable to resolve hostname to %v to ip", hr.addrs)
+			return nil, fmt.Errorf("unable to resolve %s to an IP address: %w", addr, err)
 		}
 
-		ipString := ip.String()
-		ips = append(ips, &ipString)
-
+		ips = append(ips, ip.String())
 	}
 
-	ipFilter := &ec2.Filter{}
-	ipFilter.SetName("addresses.private-ip-address").SetValues(ips)
+	dniInput := &ec2.DescribeNetworkInterfacesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("addresses.private-ip-address"),
+				Values: ips,
+			},
+		},
+	}
 
-	dniInput := &ec2.DescribeNetworkInterfacesInput{}
-	dniInput.SetFilters([]*ec2.Filter{ipFilter})
+	var output []string
+	seen := make(map[string]bool)
 
-	describeNetworkInterfacesPager := func(page *ec2.DescribeNetworkInterfacesOutput, lastPage bool) bool {
+	// Fetch all the network interfaces described
+	paginator := ec2.NewDescribeNetworkInterfacesPaginator(client, dniInput)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("could not describe network interfaces\n%w", err)
+		}
+
 		for _, nic := range page.NetworkInterfaces {
-			output = append(output, *nic.Attachment.InstanceId)
+			// Interfaces owned by load balancers, NAT gateways, Lambda functions and
+			// so on, or not attached at all, have no instance
+			if nic.Attachment == nil || nic.Attachment.InstanceId == nil {
+				continue
+			}
+
+			id := *nic.Attachment.InstanceId
+			if !seen[id] {
+				seen[id] = true
+				output = append(output, id)
+			}
 		}
-
-		// If it's not the last page, continue
-		return !lastPage
-	}
-
-	// Fetch all the instances described
-	if err = client.DescribeNetworkInterfacesPages(dniInput, describeNetworkInterfacesPager); err != nil {
-		return nil, fmt.Errorf("could not describe network interfaces\n%v", err)
 	}
 
 	return output, nil
@@ -63,10 +81,10 @@ func (hr *HostnameResolver) ResolveToInstanceId(client ec2iface.EC2API) (output 
 func resolveToFirst(addr string) (net.IP, error) {
 	if ip := net.ParseIP(addr); ip != nil {
 		return ip, nil
-	} else if ips, err := net.LookupIP(addr); err == nil {
-		if len(ips[0]) > 0 {
-			return ips[0], nil
-		}
+	}
+
+	if ips, err := net.LookupIP(addr); err == nil && len(ips) > 0 {
+		return ips[0], nil
 	}
 
 	return nil, fmt.Errorf("no IP address found for %s", addr)

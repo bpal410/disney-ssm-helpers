@@ -4,7 +4,8 @@
 		"dockerfile": "Dockerfile"
 	},
 	"features": {
-		"ghcr.io/devcontainers/features/aws-cli:1": {}
+		"ghcr.io/devcontainers/features/aws-cli:1": {},
+		"ghcr.io/devcontainers/features/github-cli:1": {}
 	},
 	// Required for the Delve debugger (dlv).
 	"capAdd": ["SYS_PTRACE"],

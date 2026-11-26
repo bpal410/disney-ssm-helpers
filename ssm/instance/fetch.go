@@ -1,24 +1,23 @@
 package instance
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/service/ssm"
-	"github.com/aws/aws-sdk-go/service/ssm/ssmiface"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 )
 
-func GetSessionInstances(client ssmiface.SSMAPI, diiInput *ssm.DescribeInstanceInformationInput) (output []*ssm.InstanceInformation, err error) {
+func GetSessionInstances(ctx context.Context, client ssm.DescribeInstanceInformationAPIClient, diiInput *ssm.DescribeInstanceInformationInput) (output []ssmtypes.InstanceInformation, err error) {
 	// Fetch all instances that match the provided filters
-	if err = client.DescribeInstanceInformationPages(
-		diiInput,
-		func(page *ssm.DescribeInstanceInformationOutput, lastPage bool) bool {
-			output = append(output, page.InstanceInformationList...)
-
-			// If it's not the last page, continue
-			return !lastPage
-		}); err != nil {
-		return nil, fmt.Errorf("Could not retrieve SSM instance info\n%v", err)
+	paginator := ssm.NewDescribeInstanceInformationPaginator(client, diiInput)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("Could not retrieve SSM instance info\n%w", err)
+		}
+		output = append(output, page.InstanceInformationList...)
 	}
 
-	return output, err
+	return output, nil
 }

@@ -1,61 +1,39 @@
 package ec2
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-func GetEC2InstanceInfo(client ec2iface.EC2API, instances []*string) (output []*ec2.Instance, err error) {
-	keyedInstances := make(map[string]*ec2.Instance)
+// GetEC2InstanceInfo describes the given EC2 instances and returns them keyed by instance ID.
+// Instances that EC2 did not return are absent from the map.
+func GetEC2InstanceInfo(ctx context.Context, client ec2.DescribeInstancesAPIClient, instanceIDs []string) (map[string]ec2types.Instance, error) {
+	instances := make(map[string]ec2types.Instance, len(instanceIDs))
 
-	// Set up our DI input object
-	diInput := &ec2.DescribeInstancesInput{
-		InstanceIds: instances,
+	// DescribeInstances with no IDs describes every instance in the account
+	if len(instanceIDs) == 0 {
+		return instances, nil
 	}
 
-	describeInstancesPager := func(page *ec2.DescribeInstancesOutput, lastPage bool) bool {
+	paginator := ec2.NewDescribeInstancesPaginator(client, &ec2.DescribeInstancesInput{
+		InstanceIds: instanceIDs,
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("Could not describe EC2 instances\n%w", err)
+		}
+
 		for _, reservation := range page.Reservations {
 			for _, i := range reservation.Instances {
-				keyedInstances[*i.InstanceId] = i
+				instances[aws.ToString(i.InstanceId)] = i
 			}
-
 		}
-
-		// If it's not the last page, continue
-		return !lastPage
 	}
 
-	// Fetch all the instances described
-	if err = client.DescribeInstancesPages(diInput, describeInstancesPager); err != nil {
-		return nil, fmt.Errorf("Could not describe EC2 instances\n%v", err)
-	}
-
-	for _, i := range instances {
-		output = append(output, keyedInstances[*i])
-	}
-
-	return output, nil
-}
-
-// GetEC2InstanceTags accepts any number of instance strings and returns a populated InstanceTags{} object for each instance
-func GetEC2InstanceTags(client ec2iface.EC2API, instances []*string) (ec2Tags map[string]Tags, err error) {
-	instanceInfo, err := GetEC2InstanceInfo(client, instances)
-	if err != nil {
-		return nil, fmt.Errorf("Error when trying to retrieve EC2 instance tags\n%v", err)
-	}
-
-	ec2Tags = make(map[string]Tags)
-	for _, i := range instanceInfo {
-		tagMap := make(map[string]string)
-
-		for _, tag := range i.Tags {
-			tagMap[*tag.Key] = *tag.Value
-		}
-
-		ec2Tags[*i.InstanceId] = tagMap
-	}
-
-	return ec2Tags, nil
+	return instances, nil
 }

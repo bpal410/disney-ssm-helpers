@@ -1,14 +1,17 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/spf13/cobra"
 
 	"github.com/bpal410/ssm-helpers/aws/resolver"
@@ -38,7 +41,7 @@ func runCommand(cmd *cobra.Command, args []string) {
 	var err error
 	var instanceList, addressList, commandList, profileList, regionList []string
 	var maxConcurrency, maxErrors string
-	var targets []*ssm.Target
+	var targets []ssmtypes.Target
 
 	// Get all of our CLI flag values
 	if err = cmdutil.ValidateArgs(cmd, args); err != nil {
@@ -82,10 +85,10 @@ func runCommand(cmd *cobra.Command, args []string) {
 	log.Info("Command(s) to be executed:\n", strings.Join(commandList, "\n"))
 
 	sciInput := &ssm.SendCommandInput{
-		InstanceIds:  aws.StringSlice(instanceList),
+		InstanceIds:  instanceList,
 		Targets:      targets,
 		DocumentName: aws.String("AWS-RunShellScript"),
-		Parameters: map[string][]*string{
+		Parameters: map[string][]string{
 			/*
 				ssm.SendCommandInput objects require parameters for the DocumentName chosen
 
@@ -93,36 +96,52 @@ func runCommand(cmd *cobra.Command, args []string) {
 				which is the shell command to be executed on the target. To emulate
 				the original script, we also set "executionTimeout" to 10 minutes.
 			*/
-			"commands":         aws.StringSlice(commandList),
-			"executionTimeout": aws.StringSlice([]string{"600"}),
+			"commands":         commandList,
+			"executionTimeout": {"600"},
 		},
 		MaxConcurrency: aws.String(maxConcurrency),
 		MaxErrors:      aws.String(maxErrors),
 	}
 
+	ctx := cmd.Context()
 	wg, output := sync.WaitGroup{}, invocation.ResultSafe{}
+	started := 0
 
 	// Set up our AWS session for each permutation of profile + region and iterate over them
-	sessionPool := session.NewPool(profileList, regionList, log)
+	sessionPool := newSessionPool(ctx, profileList, regionList)
 	for _, sess := range sessionPool.Sessions {
-		wg.Add(1)
-		var threadLocalSendCommandInput *ssm.SendCommandInput = &(*sciInput)
-		ssmClient := ssm.New(sess.Session)
-
+		var resolvedIDs []string
 		if len(addressList) > 0 {
-			ec2Client := ec2.New(sess.Session)
+			ec2Client := ec2.NewFromConfig(sess.Config)
 			hr := resolver.NewHostnameResolver(addressList)
-			ids, _ := hr.ResolveToInstanceId(ec2Client)
-			for _, id := range ids {
-				threadLocalSendCommandInput.InstanceIds = append(threadLocalSendCommandInput.InstanceIds, &id)
+			if resolvedIDs, err = hr.ResolveToInstanceId(ctx, ec2Client); err != nil {
+				log.Errorf("Could not resolve addresses to instances for %s in %s\n%v", sess.ProfileName, sess.Region(), err)
 			}
 		}
 
-		log.Debugf("Starting invocation targeting account %s in %s", sess.ProfileName, *sess.Session.Config.Region)
-		go ssmx.RunInvocations(sess, ssmClient, &wg, sciInput, &output)
+		sessionInput := inputForSession(sciInput, resolvedIDs)
+		if len(sessionInput.InstanceIds) == 0 && len(sessionInput.Targets) == 0 {
+			log.Debugf("No instances to target for %s in %s, skipping", sess.ProfileName, sess.Region())
+			continue
+		}
+
+		ssmClient := ssm.NewFromConfig(sess.Config)
+
+		log.Debugf("Starting invocation targeting account %s in %s", sess.ProfileName, sess.Region())
+		started++
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ssmx.RunInvocations(ctx, sess, ssmClient, sessionInput, &output)
+		}()
 	}
 
 	wg.Wait() // Wait for each account/region combo to finish
+
+	// Only possible when --address matched no instances in any profile or region
+	if started == 0 {
+		log.Fatal("No instances matched the given addresses in any profile or region")
+	}
 
 	resultFormat := "%-24s %-15s %-15s %s"
 	var successCounter, failedCounter int
@@ -138,24 +157,24 @@ func runCommand(cmd *cobra.Command, args []string) {
 		}
 
 		if v.Status == invocation.CommandSuccess {
-			log.Infof(resultFormat, *v.InvocationResult.InstanceId, v.Region, v.ProfileName, v.Status)
+			log.Infof(resultFormat, aws.ToString(v.InvocationResult.InstanceId), v.Region, v.ProfileName, v.Status)
 			successCounter++
 		} else {
-			log.Errorf(resultFormat, *v.InvocationResult.InstanceId, v.Region, v.ProfileName, v.Status)
+			log.Errorf(resultFormat, aws.ToString(v.InvocationResult.InstanceId), v.Region, v.ProfileName, v.Status)
 			failedCounter++
 		}
 
 		// stdout is always written back at info level
-		if *v.InvocationResult.StandardOutputContent != "" {
-			log.Info(*v.InvocationResult.StandardOutputContent)
+		if stdout := aws.ToString(v.InvocationResult.StandardOutputContent); stdout != "" {
+			log.Info(stdout)
 		}
 
 		// stderr is written back at warn if the invocation was successful, and error if not
-		if *v.InvocationResult.StandardErrorContent != "" {
+		if stderr := aws.ToString(v.InvocationResult.StandardErrorContent); stderr != "" {
 			if v.Status == invocation.CommandSuccess {
-				log.Warn(*v.InvocationResult.StandardErrorContent)
+				log.Warn(stderr)
 			} else {
-				log.Error(*v.InvocationResult.StandardErrorContent)
+				log.Error(stderr)
 			}
 		}
 	}
@@ -166,4 +185,26 @@ func runCommand(cmd *cobra.Command, args []string) {
 	}
 
 	return
+}
+
+// inputForSession returns a copy of base for one profile/region, with that
+// session's resolved instance IDs added. base is shared by every session and
+// is never modified, so instance IDs found in one account are not sent to another.
+func inputForSession(base *ssm.SendCommandInput, resolvedIDs []string) *ssm.SendCommandInput {
+	input := *base
+	input.InstanceIds = append(slices.Clone(base.InstanceIds), resolvedIDs...)
+	return &input
+}
+
+// newSessionPool creates the AWS sessions for every profile/region pair. Pairs
+// that fail are logged and skipped; if none succeed, the command exits.
+func newSessionPool(ctx context.Context, profiles []string, regions []string) *session.Pool {
+	pool, err := session.NewPool(ctx, profiles, regions, log)
+	if err != nil {
+		if len(pool.Sessions) == 0 {
+			log.Fatalf("Error when trying to create session:\n%v", err)
+		}
+		log.Errorf("Some profile/region combinations will be skipped:\n%v", err)
+	}
+	return pool
 }

@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 )
 
 // CommaSplit is a function used to split a comma-delimited list of strings into a slice of strings
@@ -31,14 +31,14 @@ func SliceToMap(kvslice []string, filterMap *map[string]string) {
 	}
 }
 
-func SliceToTargets(kvslice []string) (targets []*ssm.Target) {
+func SliceToTargets(kvslice []string) (targets []ssmtypes.Target) {
 	var elements []string
 
 	for i := 0; i < len(kvslice); i++ {
 		elements = strings.Split(kvslice[i], "=")
-		targets = append(targets, &ssm.Target{
+		targets = append(targets, ssmtypes.Target{
 			Key:    aws.String("tag:" + elements[0]),
-			Values: aws.StringSlice([]string{elements[1]}),
+			Values: []string{elements[1]},
 		})
 	}
 

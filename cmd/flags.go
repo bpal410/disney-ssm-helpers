@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/aws/aws-sdk-go/service/ssm"
-
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
@@ -82,7 +81,7 @@ func getRegionList(cmd *cobra.Command) ([]string, error) {
 	return []string{""}, nil
 }
 
-func getTargetList(cmd *cobra.Command) (targets []*ssm.Target, err error) {
+func getTargetList(cmd *cobra.Command) (targets []ssmtypes.Target, err error) {
 	var filterList []string
 	if filterList, err = cmdutil.GetFlagStringSlice(cmd, "filter"); err != nil {
 		return nil, err
@@ -163,7 +162,7 @@ func validateSessionFlags(cmd *cobra.Command, instanceList []string, filterList 
 }
 
 // validateRunFlags validates the usage of certain flags required by the run subcommand
-func validateRunFlags(cmd *cobra.Command, instanceList []string, addressList []string, commandList []string, filterList []*ssm.Target) error {
+func validateRunFlags(cmd *cobra.Command, instanceList []string, addressList []string, commandList []string, filterList []ssmtypes.Target) error {
 	if len(instanceList) > 0 && len(filterList) > 0 {
 		return cmdutil.UsageError(cmd, "The --filter and --instance flags cannot be used simultaneously.")
 	}

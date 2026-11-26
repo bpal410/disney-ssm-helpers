@@ -1,44 +1,50 @@
 package ec2
 
 import (
+	"context"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 
 	mocks "github.com/bpal410/ssm-helpers/testing"
 )
 
-func TestGetEC2InstanceTags(t *testing.T) {
-	assert := assert.New(t)
-	mockSvc := &mocks.MockEC2Client{}
-
-	t.Run("", func(t *testing.T) {
-		tags, err := GetEC2InstanceTags(mockSvc, aws.StringSlice([]string{"i-123", "i-456", "i-789"}))
-
-		keys := make([]string, 0, 3)
-		for k := range tags {
-			keys = append(keys, k)
-		}
-
-		assert.NoError(err)
-		assert.Lenf(tags, 3, "Incorrect number of tag slices returned, got %d, expected 3", len(tags))
-		assert.ElementsMatch(keys, []string{"i-123", "i-456", "i-789"}, "Incorrect instance ID returned in tag slice\n%v", tags)
-		assert.Equal(tags["i-123"]["env"], "dev", "Incorrect tag values returned for instance i-123, got , expected env:dev and id_foo:321")
-
-	})
-}
-
 func TestGetEC2InstanceInfo(t *testing.T) {
-	assert := assert.New(t)
-	mockSvc := &mocks.MockEC2Client{}
+	ctx := context.Background()
 
 	t.Run("get instance info from IDs", func(t *testing.T) {
-		info, err := GetEC2InstanceInfo(mockSvc,
-			aws.StringSlice([]string{"i-123", "i-456", "i-789"}))
+		mockSvc := &mocks.MockEC2Client{}
+		info, err := GetEC2InstanceInfo(ctx, mockSvc, []string{"i-123", "i-456", "i-789"})
 
-		assert.Lenf(info, 3, "Incorrect number of instances returned, got %d, expected 3", len(info))
-		assert.NoError(err)
+		assert.NoError(t, err)
+		assert.Len(t, info, 3)
+		assert.Equal(t, "vpc-456", aws.ToString(info["i-456"].VpcId))
 	})
 
+	t.Run("instances are keyed by ID, not position", func(t *testing.T) {
+		mockSvc := &mocks.MockEC2Client{}
+		info, err := GetEC2InstanceInfo(ctx, mockSvc, []string{"i-789", "i-123"})
+
+		assert.NoError(t, err)
+		assert.Len(t, info, 2)
+		assert.Equal(t, "i-789", aws.ToString(info["i-789"].InstanceId))
+		assert.Equal(t, "i-123", aws.ToString(info["i-123"].InstanceId))
+	})
+
+	t.Run("no IDs does not describe every instance", func(t *testing.T) {
+		mockSvc := &mocks.MockEC2Client{}
+		info, err := GetEC2InstanceInfo(ctx, mockSvc, nil)
+
+		assert.NoError(t, err)
+		assert.Empty(t, info)
+		assert.Equal(t, 0, mockSvc.DescribeInstancesCalls())
+	})
+
+	t.Run("API errors are returned", func(t *testing.T) {
+		mockSvc := &mocks.MockEC2Client{Err: mocks.NewAPIError("UnauthorizedOperation", "denied")}
+		_, err := GetEC2InstanceInfo(ctx, mockSvc, []string{"i-123"})
+
+		assert.ErrorContains(t, err, "UnauthorizedOperation")
+	})
 }

@@ -35,6 +35,8 @@ func GetAWSProfiles(profilePath ...string) (profiles []string, err error) {
 		}
 	}
 
+	defer configFile.Close()
+
 	reg := regexp.MustCompile(`\[profile (.*)\]`)
 	// Parse through config file to get a list of all profiles
 	var data []string
@@ -47,5 +49,9 @@ func GetAWSProfiles(profilePath ...string) (profiles []string, err error) {
 		}
 	}
 
-	return data, err
+	if err = scanner.Err(); err != nil {
+		return nil, fmt.Errorf("could not read AWS config file\n%w", err)
+	}
+
+	return data, nil
 }

@@ -3,17 +3,8 @@ package invocation
 import (
 	"sync"
 
-	"github.com/aws/aws-sdk-go/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
-
-// RunShellScriptParameters is the appropriate struct for use when setting SSM document parameters
-type RunShellScriptParameters map[string][]*string
-
-// CommandOutputSafe allows for concurrent-safe access to a slice of *ssm.SendCommandOutput info
-type CommandOutputSafe struct {
-	sync.Mutex
-	Output []*ssm.SendCommandOutput
-}
 
 // Status ...
 type Status string
