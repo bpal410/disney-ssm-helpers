@@ -205,13 +205,13 @@ func CheckInstanceReadiness(ctx context.Context, sess *session.Session, ssmClien
 	}
 
 	// Get the tags to display during instance selection
-	instanceInfo, err := ec2helpers.GetEC2InstanceInfo(ctx, ec2Client, ec2Instances)
+	ec2Info, err := ec2helpers.GetEC2InstanceInfo(ctx, ec2Client, ec2Instances)
 	if err != nil {
 		sess.Logger.Error(err)
 	}
 
-	for idx, id := range readyInstances {
-		// Append our instance info to the master list
-		addInstanceInfo(id, instanceInfo[idx], readyInstancePool, sess.ProfileName, sess.Region())
+	for _, id := range readyInstances {
+		// Instances without EC2 info (managed instances, or a failed lookup) are listed without tags
+		addInstanceInfo(id, ec2Info[id], readyInstancePool, sess.ProfileName, sess.Region())
 	}
 }

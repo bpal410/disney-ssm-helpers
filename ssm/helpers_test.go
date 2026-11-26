@@ -81,6 +81,15 @@ func TestAddInstanceInfo(t *testing.T) {
 	assert.Equal(id, ip.AllInstances[id].InstanceID)
 	assert.Equal("vpc-123", ip.AllInstances[id].VpcId)
 	assert.Equal(map[string]string{"foo": "1", "bar": "2"}, ip.AllInstances[id].Tags)
+
+	t.Run("instance without EC2 info", func(t *testing.T) {
+		// Managed instances have no EC2 data; this used to dereference a nil VpcId
+		addInstanceInfo("mi-001", ec2types.Instance{}, ip, "testprofile", "us-east-1")
+
+		assert.Equal("mi-001", ip.AllInstances["mi-001"].InstanceID)
+		assert.Empty(ip.AllInstances["mi-001"].Tags)
+		assert.Empty(ip.AllInstances["mi-001"].VpcId)
+	})
 }
 
 func TestCheckInstanceReadiness(t *testing.T) {
@@ -112,6 +121,39 @@ func TestCheckInstanceReadiness(t *testing.T) {
 
 		assert.Len(t, pool.AllInstances, 1)
 		assert.Contains(t, pool.AllInstances, "i-123")
+	})
+
+	t.Run("managed instances do not shift EC2 tags onto other instances", func(t *testing.T) {
+		pool := newPool()
+
+		// Mixing mi- and EC2 instances used to match tags by position and then index out of range
+		CheckInstanceReadiness(ctx, sess, &mocks.MockSSMClient{}, &mocks.MockEC2Client{}, instanceInfoList("mi-001", "i-123", "i-789"), 10, pool)
+
+		require.Len(t, pool.AllInstances, 3)
+		assert.Empty(t, pool.AllInstances["mi-001"].Tags)
+		assert.Equal(t, "dev", pool.AllInstances["i-123"].Tags["env"])
+		assert.Equal(t, "qa", pool.AllInstances["i-789"].Tags["env"])
+		assert.Equal(t, "vpc-789", pool.AllInstances["i-789"].VpcId)
+	})
+
+	t.Run("only managed instances does not describe every EC2 instance", func(t *testing.T) {
+		ec2Client := &mocks.MockEC2Client{}
+		pool := newPool()
+
+		CheckInstanceReadiness(ctx, sess, &mocks.MockSSMClient{}, ec2Client, instanceInfoList("mi-001", "mi-002"), 10, pool)
+
+		assert.Len(t, pool.AllInstances, 2)
+		assert.Equal(t, 0, ec2Client.DescribeInstancesCalls())
+	})
+
+	t.Run("an EC2 error lists instances without tags instead of panicking", func(t *testing.T) {
+		ec2Client := &mocks.MockEC2Client{Err: mocks.NewAPIError("UnauthorizedOperation", "denied")}
+		pool := newPool()
+
+		CheckInstanceReadiness(ctx, sess, &mocks.MockSSMClient{}, ec2Client, instanceInfoList("i-123", "i-456"), 10, pool)
+
+		require.Len(t, pool.AllInstances, 2)
+		assert.Empty(t, pool.AllInstances["i-123"].Tags)
 	})
 
 	t.Run("limit counts ready instances only", func(t *testing.T) {
