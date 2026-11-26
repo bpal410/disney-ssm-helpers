@@ -1,44 +1,20 @@
 package ec2
 
 import (
+	"context"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/stretchr/testify/assert"
 
 	mocks "github.com/bpal410/ssm-helpers/testing"
 )
 
-func TestGetEC2InstanceTags(t *testing.T) {
-	assert := assert.New(t)
-	mockSvc := &mocks.MockEC2Client{}
-
-	t.Run("", func(t *testing.T) {
-		tags, err := GetEC2InstanceTags(mockSvc, aws.StringSlice([]string{"i-123", "i-456", "i-789"}))
-
-		keys := make([]string, 0, 3)
-		for k := range tags {
-			keys = append(keys, k)
-		}
-
-		assert.NoError(err)
-		assert.Lenf(tags, 3, "Incorrect number of tag slices returned, got %d, expected 3", len(tags))
-		assert.ElementsMatch(keys, []string{"i-123", "i-456", "i-789"}, "Incorrect instance ID returned in tag slice\n%v", tags)
-		assert.Equal(tags["i-123"]["env"], "dev", "Incorrect tag values returned for instance i-123, got , expected env:dev and id_foo:321")
-
-	})
-}
-
 func TestGetEC2InstanceInfo(t *testing.T) {
-	assert := assert.New(t)
-	mockSvc := &mocks.MockEC2Client{}
-
 	t.Run("get instance info from IDs", func(t *testing.T) {
-		info, err := GetEC2InstanceInfo(mockSvc,
-			aws.StringSlice([]string{"i-123", "i-456", "i-789"}))
+		mockSvc := &mocks.MockEC2Client{}
+		info, err := GetEC2InstanceInfo(context.Background(), mockSvc, []string{"i-123", "i-456", "i-789"})
 
-		assert.Lenf(info, 3, "Incorrect number of instances returned, got %d, expected 3", len(info))
-		assert.NoError(err)
+		assert.NoError(t, err)
+		assert.Len(t, info, 3)
 	})
-
 }

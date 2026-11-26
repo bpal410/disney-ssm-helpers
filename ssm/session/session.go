@@ -1,28 +1,37 @@
 package session
 
 import (
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/ssm"
-	"github.com/aws/aws-sdk-go/service/ssm/ssmiface"
+	"context"
+	"errors"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/aws/smithy-go"
 )
 
-// CheckSessionReadiness takes an SSM API session and instance ID and verifies whether or not the instance is available for start-session functionality
-func CheckSessionReadiness(context ssmiface.SSMAPI, instanceID *string) (connected bool, err error) {
-	// Create our getConnectionStatus input object
-	gcsInput := &ssm.GetConnectionStatusInput{
-		Target: instanceID,
-	}
+// ConnectionStatusAPI is the part of the SSM API used to check session readiness
+type ConnectionStatusAPI interface {
+	GetConnectionStatus(ctx context.Context, params *ssm.GetConnectionStatusInput, optFns ...func(*ssm.Options)) (*ssm.GetConnectionStatusOutput, error)
+}
 
+// CheckSessionReadiness takes an SSM API client and instance ID and verifies whether or not the instance is available for start-session functionality
+func CheckSessionReadiness(ctx context.Context, client ConnectionStatusAPI, instanceID string) (connected bool, err error) {
 	// Call GetConnectionStatus to determine if the given instance is ready for a session
-	output, err := context.GetConnectionStatus(gcsInput)
-
-	// Suppress errors due to rate limiting
-	if awsErr, ok := err.(awserr.Error); ok && err != nil && awsErr.Code() == "ThrottlingException" {
-		return false, nil
+	output, err := client.GetConnectionStatus(ctx, &ssm.GetConnectionStatusInput{
+		Target: aws.String(instanceID),
+	})
+	if err != nil {
+		// Suppress errors due to rate limiting; the retryer has already backed off
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "ThrottlingException" {
+			return false, nil
+		}
+		return false, err
 	}
 
-	if err != nil || *output.Status == "NotConnected" {
-		return false, err
+	if output.Status == ssmtypes.ConnectionStatusNotConnected {
+		return false, nil
 	}
 
 	return true, nil

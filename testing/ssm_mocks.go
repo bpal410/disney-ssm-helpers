@@ -1,64 +1,55 @@
 package mocks
 
 import (
+	"context"
 	"fmt"
-	"strings"
+	"slices"
+	"strconv"
+	"sync"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/ssm"
-	"github.com/aws/aws-sdk-go/service/ssm/ssmiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/aws/smithy-go"
 )
 
+// MockSSMClient implements the parts of the SSM API used by this tool.
+//
+// GetConnectionStatus answers from ConnectionStatus (instance ID -> status) and
+// ConnectionErrors (instance ID -> error); instances in neither are connected.
+// SendCommand records each input in SentCommands.
 type MockSSMClient struct {
-	ssmiface.SSMAPI
+	ConnectionStatus map[string]ssmtypes.ConnectionStatus
+	ConnectionErrors map[string]error
+
+	mu           sync.Mutex
+	SentCommands []*ssm.SendCommandInput
 }
 
-func (m *MockSSMClient) StartSession(input *ssm.StartSessionInput) (output *ssm.StartSessionOutput, err error) {
-
-	// Simulate a working SSM instance that supports start-session
-	if *input.Target == "i-123" {
-		return &ssm.StartSessionOutput{
-			SessionId: aws.String("ready-instance-id"),
-		}, nil
-	}
-
-	// Simulate an SSM instance with bad permissions
-	if *input.Target == "i-456" {
-		return &ssm.StartSessionOutput{}, awserr.New("TargetNotConnected", "bad instance role permissions make this fail on ssm-managed instances", nil)
-	}
-
-	// Simulate a method call that fails for an arbitrary, non-TargetNotConnected reason
-	if *input.Target == "i-789" {
-		return &ssm.StartSessionOutput{}, fmt.Errorf("This represents any error other than TargetNotConnected.")
-	}
-
-	// Simulate a working SSM instance that supports start-session but then fails when TerminateSession() is called
-	if *input.Target == "i-000" {
-		return &ssm.StartSessionOutput{
-			SessionId: aws.String("session-term-error"),
-		}, nil
-	}
-
-	return
+// NewAPIError returns an error shaped like one returned by an AWS API
+func NewAPIError(code, message string) error {
+	return &smithy.GenericAPIError{Code: code, Message: message}
 }
 
-func (m *MockSSMClient) TerminateSession(input *ssm.TerminateSessionInput) (output *ssm.TerminateSessionOutput, err error) {
-	if *input.SessionId == "session-term-error" {
-		return &ssm.TerminateSessionOutput{
-			SessionId: input.SessionId,
-		}, awserr.New("DoesNotExistException", "this tends to occur when you hit rate limits", nil)
+func (m *MockSSMClient) GetConnectionStatus(_ context.Context, input *ssm.GetConnectionStatusInput, _ ...func(*ssm.Options)) (*ssm.GetConnectionStatusOutput, error) {
+	target := aws.ToString(input.Target)
+
+	if err, ok := m.ConnectionErrors[target]; ok {
+		return nil, err
 	}
 
-	return &ssm.TerminateSessionOutput{
-		SessionId: input.SessionId,
-	}, nil
+	status := ssmtypes.ConnectionStatusConnected
+	if s, ok := m.ConnectionStatus[target]; ok {
+		status = s
+	}
+
+	return &ssm.GetConnectionStatusOutput{Target: input.Target, Status: status}, nil
 }
 
-func (m *MockSSMClient) GetCommandInvocation(input *ssm.GetCommandInvocationInput) (output *ssm.GetCommandInvocationOutput, err error) {
+func (m *MockSSMClient) GetCommandInvocation(_ context.Context, input *ssm.GetCommandInvocationInput, _ ...func(*ssm.Options)) (*ssm.GetCommandInvocationOutput, error) {
 	var status string
 
-	switch *input.CommandId {
+	switch aws.ToString(input.CommandId) {
 	case "success-id":
 		status = "Success"
 	case "failed-id", "mixed-id":
@@ -66,90 +57,130 @@ func (m *MockSSMClient) GetCommandInvocation(input *ssm.GetCommandInvocationInpu
 	case "pending-id":
 		status = "Pending"
 	case "bad-id":
-		return nil, awserr.New("InvalidCommandId", "InvalidCommandId", nil)
+		return nil, NewAPIError("InvalidCommandId", "InvalidCommandId")
 	}
 
-	output = &ssm.GetCommandInvocationOutput{
-		InstanceId:    input.InstanceId,
-		CommandId:     input.CommandId,
-		StatusDetails: aws.String(status),
-	}
-
-	return output, nil
+	return &ssm.GetCommandInvocationOutput{
+		InstanceId:            input.InstanceId,
+		CommandId:             input.CommandId,
+		StatusDetails:         aws.String(status),
+		StandardOutputContent: aws.String(""),
+		StandardErrorContent:  aws.String(""),
+	}, nil
 }
 
-func (m *MockSSMClient) SendCommand(input *ssm.SendCommandInput) (output *ssm.SendCommandOutput, err error) {
+func (m *MockSSMClient) SendCommand(_ context.Context, input *ssm.SendCommandInput, _ ...func(*ssm.Options)) (*ssm.SendCommandOutput, error) {
 	if len(input.InstanceIds) > 0 && len(input.Targets) > 0 {
 		return nil, fmt.Errorf("Cannot specify instance IDs and SSM targets in same SendCommandInput")
 	}
 
+	m.mu.Lock()
+	m.SentCommands = append(m.SentCommands, input)
+	m.mu.Unlock()
+
 	// Mock our response from the SSM API
-	output = &ssm.SendCommandOutput{
-		Command: &ssm.Command{
-			CommandId:    aws.String("1234561234561234561234561235456"),
+	return &ssm.SendCommandOutput{
+		Command: &ssmtypes.Command{
+			CommandId:    aws.String("success-id"),
 			DocumentName: input.DocumentName,
 			InstanceIds:  input.InstanceIds,
 			Parameters:   input.Parameters,
 			Targets:      input.Targets,
 		},
+	}, nil
+}
+
+// ListCommands reports every command as finished successfully
+func (m *MockSSMClient) ListCommands(_ context.Context, input *ssm.ListCommandsInput, _ ...func(*ssm.Options)) (*ssm.ListCommandsOutput, error) {
+	return &ssm.ListCommandsOutput{
+		Commands: []ssmtypes.Command{
+			{CommandId: input.CommandId, Status: ssmtypes.CommandStatusSuccess},
+		},
+	}, nil
+}
+
+// ListCommandInvocations returns one invocation per instance in the most recent
+// SendCommand, one instance per page so that paging is exercised.
+func (m *MockSSMClient) ListCommandInvocations(_ context.Context, input *ssm.ListCommandInvocationsInput, _ ...func(*ssm.Options)) (*ssm.ListCommandInvocationsOutput, error) {
+	m.mu.Lock()
+	var instanceIDs []string
+	if len(m.SentCommands) > 0 {
+		instanceIDs = m.SentCommands[len(m.SentCommands)-1].InstanceIds
 	}
+	m.mu.Unlock()
+
+	page := 0
+	if input.NextToken != nil {
+		page, _ = strconv.Atoi(*input.NextToken)
+	}
+	if page >= len(instanceIDs) {
+		return &ssm.ListCommandInvocationsOutput{}, nil
+	}
+
+	output := &ssm.ListCommandInvocationsOutput{
+		CommandInvocations: []ssmtypes.CommandInvocation{
+			{CommandId: input.CommandId, InstanceId: aws.String(instanceIDs[page])},
+		},
+	}
+	if page+1 < len(instanceIDs) {
+		output.NextToken = aws.String(strconv.Itoa(page + 1))
+	}
+
 	return output, nil
 }
 
-func (m *MockSSMClient) DescribeInstanceInformation(input *ssm.DescribeInstanceInformationInput) (output *ssm.DescribeInstanceInformationOutput, err error) {
-
-	// Mock our response from the SSM API
-
+func (m *MockSSMClient) DescribeInstanceInformation(_ context.Context, input *ssm.DescribeInstanceInformationInput, _ ...func(*ssm.Options)) (*ssm.DescribeInstanceInformationOutput, error) {
+	// Mock our response from the SSM API, split over two pages
 	if input.NextToken == nil {
-		output = &ssm.DescribeInstanceInformationOutput{
-			InstanceInformationList: []*ssm.InstanceInformation{
+		output := &ssm.DescribeInstanceInformationOutput{
+			InstanceInformationList: []ssmtypes.InstanceInformation{
 				{
-					PlatformType:    aws.String("Linux"),
-					PingStatus:      aws.String("Offline"),
+					PlatformType:    ssmtypes.PlatformTypeLinux,
+					PingStatus:      ssmtypes.PingStatusConnectionLost,
 					InstanceId:      aws.String("i-23456"),
 					IsLatestVersion: aws.Bool(true),
 				},
 				{
-					PlatformType:    aws.String("Linux"),
-					PingStatus:      aws.String("Online"),
+					PlatformType:    ssmtypes.PlatformTypeLinux,
+					PingStatus:      ssmtypes.PingStatusOnline,
 					InstanceId:      aws.String("i-45678"),
 					IsLatestVersion: aws.Bool(true),
 				},
 				{
-					PlatformType:    aws.String("Windows"),
-					PingStatus:      aws.String("Offline"),
+					PlatformType:    ssmtypes.PlatformTypeWindows,
+					PingStatus:      ssmtypes.PingStatusConnectionLost,
 					InstanceId:      aws.String("i-78901"),
 					IsLatestVersion: aws.Bool(true),
 				},
 				{
-					PlatformType:    aws.String("Linux"),
-					PingStatus:      aws.String("Online"),
+					PlatformType:    ssmtypes.PlatformTypeLinux,
+					PingStatus:      ssmtypes.PingStatusOnline,
 					InstanceId:      aws.String("i-98765"),
 					IsLatestVersion: aws.Bool(false),
 				},
 			},
 			NextToken: aws.String("eyJNYXJrZXIiOiBudWxsLCAiYm90b190cnVuY2F0ZV9hbW91bnQiOiAxfQ=="),
 		}
-		return filterDescribeInstanceInformationOutput(input, output)
+		return filterDescribeInstanceInformationOutput(input, output), nil
 	}
 
-	output = &ssm.DescribeInstanceInformationOutput{
-		InstanceInformationList: []*ssm.InstanceInformation{
+	output := &ssm.DescribeInstanceInformationOutput{
+		InstanceInformationList: []ssmtypes.InstanceInformation{
 			{
-				PlatformType:    aws.String("Linux"),
-				PingStatus:      aws.String("Online"),
+				PlatformType:    ssmtypes.PlatformTypeLinux,
+				PingStatus:      ssmtypes.PingStatusOnline,
 				InstanceId:      aws.String("i-12345"),
 				IsLatestVersion: aws.Bool(true),
 			},
 			{
-				PlatformType:    aws.String("Linux"),
-				PingStatus:      aws.String("Online"),
+				PlatformType:    ssmtypes.PlatformTypeLinux,
+				PingStatus:      ssmtypes.PingStatusOnline,
 				InstanceId:      aws.String("i-34567"),
 				IsLatestVersion: aws.Bool(true),
 			},
 			{
-				PlatformType:    aws.String("Windows"),
-				PingStatus:      aws.String("Online"),
+				PlatformType:    ssmtypes.PlatformTypeWindows,
+				PingStatus:      ssmtypes.PingStatusOnline,
 				InstanceId:      aws.String("i-67890"),
 				IsLatestVersion: aws.Bool(true),
 			},
@@ -157,64 +188,43 @@ func (m *MockSSMClient) DescribeInstanceInformation(input *ssm.DescribeInstanceI
 		NextToken: nil,
 	}
 
-	return filterDescribeInstanceInformationOutput(input, output)
+	return filterDescribeInstanceInformationOutput(input, output), nil
 }
 
-func (m *MockSSMClient) DescribeInstanceInformationPages(input *ssm.DescribeInstanceInformationInput, fn func(*ssm.DescribeInstanceInformationOutput, bool) bool) error {
-	var err error = nil
-	var continueIterating bool = true
-
-	// Grab initial case and start looping
-	output, err := m.DescribeInstanceInformation(input)
-	for err == nil && continueIterating {
-		continueIterating = fn(output, (output.NextToken == nil))
-
-		// Just keep chugging unless we are at the end of the page.
-		if output.NextToken == nil || !continueIterating {
-			break
-		}
-
-		// continue until full list is consumed
-		input.SetNextToken(*output.NextToken)
-		output, err = m.DescribeInstanceInformation(input)
-
-	}
-
-	return err
-}
-
-func filterDescribeInstanceInformationOutput(input *ssm.DescribeInstanceInformationInput, output *ssm.DescribeInstanceInformationOutput) (*ssm.DescribeInstanceInformationOutput, error) {
-	filteredOutput := []*ssm.InstanceInformation{}
+// filterDescribeInstanceInformationOutput keeps only the instances that match every filter in the input
+func filterDescribeInstanceInformationOutput(input *ssm.DescribeInstanceInformationInput, output *ssm.DescribeInstanceInformationOutput) *ssm.DescribeInstanceInformationOutput {
+	filtered := []ssmtypes.InstanceInformation{}
 
 	for _, instance := range output.InstanceInformationList {
 		match := true
 		for _, filter := range input.Filters {
-			if !instanceMatchesFilter(*instance, *filter) {
+			if !slices.Contains(filter.Values, instanceFieldValue(instance, aws.ToString(filter.Key))) {
 				match = false
 				break
 			}
 		}
 
 		if match {
-			filteredOutput = append(filteredOutput, instance)
+			filtered = append(filtered, instance)
 		}
 	}
 
-	output.InstanceInformationList = filteredOutput
-	return output, nil
+	output.InstanceInformationList = filtered
+	return output
 }
 
-// instanceMatchesFilter converts the instance information to its string representation
-// and then checks that that information containes atleast one value in the
-// filter. This is a hack but should be sufficient for tests.
-func instanceMatchesFilter(instance ssm.InstanceInformation, filter ssm.InstanceInformationStringFilter) bool {
-	instanceString := instance.GoString()
-
-	for _, filterValue := range filter.Values {
-		if strings.Contains(instanceString, *filterValue) {
-			return true
-		}
+// instanceFieldValue returns the value of the instance field that a filter key refers to
+func instanceFieldValue(instance ssmtypes.InstanceInformation, key string) string {
+	switch key {
+	case "PingStatus":
+		return string(instance.PingStatus)
+	case "PlatformType":
+		return string(instance.PlatformType)
+	case "IsLatestVersion":
+		return strconv.FormatBool(aws.ToBool(instance.IsLatestVersion))
+	case "InstanceIds":
+		return aws.ToString(instance.InstanceId)
+	default:
+		return ""
 	}
-
-	return false
 }

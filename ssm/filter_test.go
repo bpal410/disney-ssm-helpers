@@ -3,8 +3,8 @@ package ssm
 import (
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -12,17 +12,17 @@ func TestAppendSSMFilter(t *testing.T) {
 	assert := assert.New(t)
 
 	// Create our filter slice
-	filters := []*ssm.InstanceInformationStringFilter{
+	filters := []ssmtypes.InstanceInformationStringFilter{
 		{
 			Key:    aws.String("PingStatus"),
-			Values: aws.StringSlice([]string{"Online"}),
+			Values: []string{"Online"},
 		},
 	}
 
 	// Create the filter to be appended
-	secondFilter := &ssm.InstanceInformationStringFilter{
+	secondFilter := ssmtypes.InstanceInformationStringFilter{
 		Key:    aws.String("InstanceIds"),
-		Values: aws.StringSlice([]string{"i-123", "i-456"}),
+		Values: []string{"i-123", "i-456"},
 	}
 
 	AppendSSMFilter(&filters, secondFilter)
@@ -34,10 +34,10 @@ func Test_buildFilters(t *testing.T) {
 	assert := assert.New(t)
 
 	// Create our filter slice
-	filters := []*ssm.InstanceInformationStringFilter{
+	filters := []ssmtypes.InstanceInformationStringFilter{
 		{
 			Key:    aws.String("PingStatus"),
-			Values: aws.StringSlice([]string{"Online"}),
+			Values: []string{"Online"},
 		},
 	}
 
@@ -57,12 +57,8 @@ func TestNewSSMInstanceFilter(t *testing.T) {
 
 	filter := NewSSMInstanceFilter("InstanceIds", CommaSlice{"i-123", "i-456"})
 
-	assert.Equalf(*filter.Key, "InstanceIds", "Wrong filter key added to filter, got %s, expected 'InstanceIds'", *filter.Key)
-	assert.Truef(
-		aws.StringValueSlice(filter.Values)[0] == "i-123" && aws.StringValueSlice(filter.Values)[1] == "i-456",
-		"Incorrect instance values added to filter, got %s, expected 'i-123' and 'i-456'",
-		aws.StringValueSlice(filter.Values),
-	)
+	assert.Equal("InstanceIds", aws.ToString(filter.Key))
+	assert.Equal([]string{"i-123", "i-456"}, filter.Values)
 }
 
 func TestNewSSMFilter(t *testing.T) {
@@ -70,14 +66,6 @@ func TestNewSSMFilter(t *testing.T) {
 
 	filter := newSSMFilter("filterkey", "foo", "bar", "baz")
 
-	assert.Equalf(*filter.Key, "filterkey", "Method set filter key to incorrect value, got %s, expected 'filterkey'", *filter.Key)
-
-	values := aws.StringValueSlice(filter.Values)
-
-	assert.Lenf(values, 3, "Incorrect number of values added to filter, got %d, expected 3", len(aws.StringValueSlice(filter.Values)))
-	assert.Truef(
-		values[0] == "foo" && values[1] == "bar" && values[2] == "baz",
-		"Incorrect values added to filter, got %s, expected 'foo bar baz'",
-		values,
-	)
+	assert.Equal("filterkey", aws.ToString(filter.Key))
+	assert.Equal([]string{"foo", "bar", "baz"}, filter.Values)
 }

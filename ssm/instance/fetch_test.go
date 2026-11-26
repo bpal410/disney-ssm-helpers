@@ -1,10 +1,12 @@
 package instance
 
 import (
+	"context"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/stretchr/testify/assert"
 
 	mocks "github.com/bpal410/ssm-helpers/testing"
@@ -18,22 +20,22 @@ func TestGetSessionInstances(t *testing.T) {
 
 	t.Run("latest agent version filter", func(t *testing.T) {
 		ssmInput := &ssm.DescribeInstanceInformationInput{
-			Filters: []*ssm.InstanceInformationStringFilter{
+			Filters: []ssmtypes.InstanceInformationStringFilter{
 				{
 					Key:    aws.String("PingStatus"),
-					Values: aws.StringSlice([]string{"Online"}),
+					Values: []string{"Online"},
 				},
 				{
 					Key:    aws.String("PlatformType"),
-					Values: aws.StringSlice([]string{"Linux"}),
+					Values: []string{"Linux"},
 				},
 				{
 					Key:    aws.String("IsLatestVersion"),
-					Values: aws.StringSlice([]string{"true"}),
+					Values: []string{"true"},
 				},
 			},
 		}
-		instances, err := GetSessionInstances(mockSvc, ssmInput)
+		instances, err := GetSessionInstances(context.Background(), mockSvc, ssmInput)
 
 		// Function should filter out any instances that are offline or not running Linux or do not have the latest agent version
 		assert.Lenf(instances, 3, "Incorrect number of matching instances returned; got %d, expected 3", len(instances))
@@ -42,18 +44,18 @@ func TestGetSessionInstances(t *testing.T) {
 
 	t.Run("standard instance filters", func(t *testing.T) {
 		ssmInput := &ssm.DescribeInstanceInformationInput{
-			Filters: []*ssm.InstanceInformationStringFilter{
+			Filters: []ssmtypes.InstanceInformationStringFilter{
 				{
 					Key:    aws.String("PingStatus"),
-					Values: aws.StringSlice([]string{"Online"}),
+					Values: []string{"Online"},
 				},
 				{
 					Key:    aws.String("PlatformType"),
-					Values: aws.StringSlice([]string{"Linux"}),
+					Values: []string{"Linux"},
 				},
 			},
 		}
-		instances, err := GetSessionInstances(mockSvc, ssmInput)
+		instances, err := GetSessionInstances(context.Background(), mockSvc, ssmInput)
 
 		// Function should filter out any instances that are offline or not running Linux
 		assert.Lenf(instances, 4, "Incorrect number of matching instances returned; got %d, expected 4", len(instances))

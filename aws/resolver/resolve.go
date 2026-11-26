@@ -1,16 +1,18 @@
 package resolver
 
 import (
+	"context"
 	"fmt"
 	"net"
 
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 // Provides a interface for resolving an instance to a single ec2 instance.
 type InstanceResolver interface {
-	ResolveToInstanceId(client ec2iface.EC2API) ([]string, error)
+	ResolveToInstanceId(ctx context.Context, client ec2.DescribeNetworkInterfacesAPIClient) ([]string, error)
 }
 
 // HostnameResolver attempts to resolve a fqdn or IP to a corresponding instance ID.
@@ -24,37 +26,37 @@ func NewHostnameResolver(addrs []string) *HostnameResolver {
 	}
 }
 
-func (hr *HostnameResolver) ResolveToInstanceId(client ec2iface.EC2API) (output []string, err error) {
-	ips := make([]*string, 1)
+func (hr *HostnameResolver) ResolveToInstanceId(ctx context.Context, client ec2.DescribeNetworkInterfacesAPIClient) (output []string, err error) {
+	ips := make([]string, 1)
 	for _, addr := range hr.addrs {
 		ip, err := resolveToFirst(addr)
 		if err != nil {
 			return nil, fmt.Errorf("unable to resolve hostname to %v to ip", hr.addrs)
 		}
 
-		ipString := ip.String()
-		ips = append(ips, &ipString)
-
+		ips = append(ips, ip.String())
 	}
 
-	ipFilter := &ec2.Filter{}
-	ipFilter.SetName("addresses.private-ip-address").SetValues(ips)
+	dniInput := &ec2.DescribeNetworkInterfacesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("addresses.private-ip-address"),
+				Values: ips,
+			},
+		},
+	}
 
-	dniInput := &ec2.DescribeNetworkInterfacesInput{}
-	dniInput.SetFilters([]*ec2.Filter{ipFilter})
+	// Fetch all the network interfaces described
+	paginator := ec2.NewDescribeNetworkInterfacesPaginator(client, dniInput)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("could not describe network interfaces\n%w", err)
+		}
 
-	describeNetworkInterfacesPager := func(page *ec2.DescribeNetworkInterfacesOutput, lastPage bool) bool {
 		for _, nic := range page.NetworkInterfaces {
 			output = append(output, *nic.Attachment.InstanceId)
 		}
-
-		// If it's not the last page, continue
-		return !lastPage
-	}
-
-	// Fetch all the instances described
-	if err = client.DescribeNetworkInterfacesPages(dniInput, describeNetworkInterfacesPager); err != nil {
-		return nil, fmt.Errorf("could not describe network interfaces\n%v", err)
 	}
 
 	return output, nil

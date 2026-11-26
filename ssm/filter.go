@@ -1,55 +1,36 @@
 package ssm
 
 import (
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 )
 
-// AppendSSMFilter appends a single *ssm.InstanceInformationStringFilter to an existing array of filters, then returns the appended array
-func AppendSSMFilter(filters *[]*ssm.InstanceInformationStringFilter, filterToAdd *ssm.InstanceInformationStringFilter) {
+// AppendSSMFilter appends a single ssmtypes.InstanceInformationStringFilter to an existing slice of filters
+func AppendSSMFilter(filters *[]ssmtypes.InstanceInformationStringFilter, filterToAdd ssmtypes.InstanceInformationStringFilter) {
 	*filters = append(*filters, filterToAdd)
 }
 
-// buildFilters takes a map of tags (in key[value] format) and converts them into a format that is compatible
-// with *ssm.InstanceInformationStringFilter, updating a provided []*ssm.InstanceInformationStringFilter object
-func buildFilters(commonTags map[string]string, filtersList *[]*ssm.InstanceInformationStringFilter) {
-
-	merged := make(map[string]string)
-
+// buildFilters takes a map of tags (in key[value] format) and converts them into
+// ssmtypes.InstanceInformationStringFilter values, appending them to the provided slice
+func buildFilters(commonTags map[string]string, filtersList *[]ssmtypes.InstanceInformationStringFilter) {
 	for k, v := range commonTags {
-		merged[k] = v
+		*filtersList = append(*filtersList, newSSMFilter("tag:"+k, v))
 	}
-
-	for k, v := range merged {
-		filter := newSSMFilter("tag:"+k, v)
-		*filtersList = append(*filtersList, filter)
-	}
-
-	return
 }
 
-// NewSSMInstanceFilter takes a name and any number of instance IDs to create an *ssm.InstanceInformationStringFilter
+// NewSSMInstanceFilter takes a name and any number of instance IDs to create an ssmtypes.InstanceInformationStringFilter
 // that can be used to select specific SSM-managed instances instead of solely searching based on tags
-func NewSSMInstanceFilter(name string, values CommaSlice) *ssm.InstanceInformationStringFilter {
-	stringPointerSlice := aws.StringSlice(values)
-	filter := &ssm.InstanceInformationStringFilter{
+func NewSSMInstanceFilter(name string, values CommaSlice) ssmtypes.InstanceInformationStringFilter {
+	return ssmtypes.InstanceInformationStringFilter{
 		Key:    aws.String(name),
-		Values: stringPointerSlice,
+		Values: append([]string(nil), values...),
 	}
-	return filter
 }
 
-// newSSMFilter takes a name and any number of string values and returns an *ssm.InstanceInformationStringFilter object,
-// as the values must be inside of a []*string object to be used in the filter. Yes, it's weird.
-func newSSMFilter(name string, values ...string) *ssm.InstanceInformationStringFilter {
-	awsValues := []*string{}
-	for _, value := range values {
-		awsValues = append(awsValues, aws.String(value))
-	}
-
-	filter := &ssm.InstanceInformationStringFilter{
+// newSSMFilter takes a name and any number of string values and returns an ssmtypes.InstanceInformationStringFilter
+func newSSMFilter(name string, values ...string) ssmtypes.InstanceInformationStringFilter {
+	return ssmtypes.InstanceInformationStringFilter{
 		Key:    aws.String(name),
-		Values: awsValues,
+		Values: values,
 	}
-	return filter
 }

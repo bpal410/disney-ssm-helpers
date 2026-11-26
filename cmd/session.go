@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,8 +14,8 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/AlecAivazis/survey/v2/terminal"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/spf13/cobra"
 
 	"github.com/bpal410/ssm-helpers/aws/resolver"
@@ -111,35 +112,36 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 	var totalInstances int32
 	var wg sync.WaitGroup
 
+	ctx := cmd.Context()
+
 	// Set up our AWS session for each permutation of profile + region and iterate over them
-	sessionPool := session.NewPool(profileList, regionList, log)
+	sessionPool := session.NewPool(ctx, profileList, regionList, log)
 	for _, sess := range sessionPool.Sessions {
 		wg.Add(1)
 		go func(sess *session.Session, instancePool *instance.InstanceInfoSafe) {
 			defer wg.Done()
-			var threadLocalInstanceList []string
-			threadLocalInstanceList = append(threadLocalInstanceList, instanceList...)
+			threadLocalInstanceList := slices.Clone(instanceList)
 
-			ssmClient := ssm.New(sess.Session)
+			ssmClient := ssm.NewFromConfig(sess.Config)
+			ec2Client := ec2.NewFromConfig(sess.Config)
 
 			if len(addressList) > 0 {
-				ec2Client := ec2.New(sess.Session)
 				hr := resolver.NewHostnameResolver(addressList)
-				ids, _ := hr.ResolveToInstanceId(ec2Client)
+				ids, _ := hr.ResolveToInstanceId(ctx, ec2Client)
 				threadLocalInstanceList = append(threadLocalInstanceList, ids...)
 			}
 
 			// Create our instance input object (filters, instances)
 			diiInput := ssmx.CreateSSMDescribeInstanceInput(filterList, threadLocalInstanceList)
 
-			sessionInstances, err := instance.GetSessionInstances(ssmClient, diiInput)
+			sessionInstances, err := instance.GetSessionInstances(ctx, ssmClient, diiInput)
 			if err != nil {
-				log.Tracef("AWS Session Parameters: %s, %s", *sess.Session.Config.Region, sess.ProfileName)
+				log.Tracef("AWS Session Parameters: %s, %s", sess.Region(), sess.ProfileName)
 				log.Fatal(err)
 			}
 
 			atomic.AddInt32(&totalInstances, int32(len(sessionInstances)))
-			ssmx.CheckInstanceReadiness(sess, ssmClient, sessionInstances, limitFlag, instancePool)
+			ssmx.CheckInstanceReadiness(ctx, sess, ssmClient, ec2Client, sessionInstances, limitFlag, instancePool)
 		}(sess, &instancePool)
 	}
 

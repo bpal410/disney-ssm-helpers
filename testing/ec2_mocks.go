@@ -1,88 +1,71 @@
 package mocks
 
 import (
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"context"
+	"slices"
+	"sync/atomic"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
+// MockEC2Client implements the parts of the EC2 API used by this tool.
+// If Err is set, DescribeInstances returns it.
 type MockEC2Client struct {
-	ec2iface.EC2API
+	Err error
+
+	describeInstancesCalls atomic.Int32
 }
 
-func (m *MockEC2Client) DescribeInstances(input *ec2.DescribeInstancesInput) (output *ec2.DescribeInstancesOutput, err error) {
+// DescribeInstancesCalls returns how many times DescribeInstances was called
+func (m *MockEC2Client) DescribeInstancesCalls() int {
+	return int(m.describeInstancesCalls.Load())
+}
 
-	// Set up our sample data for a few instances
-	output = &ec2.DescribeInstancesOutput{
-		NextToken: nil,
-		Reservations: []*ec2.Reservation{
-			{
-				Instances: []*ec2.Instance{
-					{
-						InstanceId: aws.String("i-123"),
-						Tags: []*ec2.Tag{
-							{
-								Key:   aws.String("id_foo"),
-								Value: aws.String("321"),
-							},
-							{
-								Key:   aws.String("env"),
-								Value: aws.String("dev"),
-							},
-						},
-					},
-					{
-						InstanceId: aws.String("i-456"),
-						Tags: []*ec2.Tag{
-							{
-								Key:   aws.String("id_bar"),
-								Value: aws.String("654"),
-							},
-							{
-								Key:   aws.String("env"),
-								Value: aws.String("prod"),
-							},
-						},
-					},
-					{
-						InstanceId: aws.String("i-789"),
-						Tags: []*ec2.Tag{
-							{
-								Key:   aws.String("id_baz"),
-								Value: aws.String("987"),
-							},
-							{
-								Key:   aws.String("env"),
-								Value: aws.String("qa"),
-							},
-						},
-					},
-				},
-			},
+var mockEC2Instances = []ec2types.Instance{
+	{
+		InstanceId: aws.String("i-123"),
+		VpcId:      aws.String("vpc-123"),
+		Tags: []ec2types.Tag{
+			{Key: aws.String("id_foo"), Value: aws.String("321")},
+			{Key: aws.String("env"), Value: aws.String("dev")},
 		},
-	}
-
-	return output, nil
+	},
+	{
+		InstanceId: aws.String("i-456"),
+		VpcId:      aws.String("vpc-456"),
+		Tags: []ec2types.Tag{
+			{Key: aws.String("id_bar"), Value: aws.String("654")},
+			{Key: aws.String("env"), Value: aws.String("prod")},
+		},
+	},
+	{
+		InstanceId: aws.String("i-789"),
+		VpcId:      aws.String("vpc-789"),
+		Tags: []ec2types.Tag{
+			{Key: aws.String("id_baz"), Value: aws.String("987")},
+			{Key: aws.String("env"), Value: aws.String("qa")},
+		},
+	},
 }
 
-func (m *MockEC2Client) DescribeInstancesPages(input *ec2.DescribeInstancesInput, fn func(*ec2.DescribeInstancesOutput, bool) bool) error {
-	var err error = nil
-	var continueIterating bool = true
+// DescribeInstances returns the mock instances whose IDs were requested, or all of them when none were
+func (m *MockEC2Client) DescribeInstances(_ context.Context, input *ec2.DescribeInstancesInput, _ ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
+	m.describeInstancesCalls.Add(1)
 
-	// Grab initial case and start looping
-	output, err := m.DescribeInstances(input)
-	for err == nil && continueIterating {
-		continueIterating = fn(output, (output.NextToken == nil))
-
-		// Just keep chugging unless we are at the end of the page.
-		if output.NextToken == nil || !continueIterating {
-			break
-		}
-
-		// continue until full list is consumed
-		input.SetNextToken(*output.NextToken)
-		output, err = m.DescribeInstances(input)
+	if m.Err != nil {
+		return nil, m.Err
 	}
 
-	return err
+	var instances []ec2types.Instance
+	for _, i := range mockEC2Instances {
+		if len(input.InstanceIds) == 0 || slices.Contains(input.InstanceIds, aws.ToString(i.InstanceId)) {
+			instances = append(instances, i)
+		}
+	}
+
+	return &ec2.DescribeInstancesOutput{
+		Reservations: []ec2types.Reservation{{Instances: instances}},
+	}, nil
 }

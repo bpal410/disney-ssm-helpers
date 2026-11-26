@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -322,13 +322,13 @@ func Test_validateRunFlags(t *testing.T) {
 	instanceList := make([]string, 51)
 
 	t.Run("try to use --filter and --instance flags", func(t *testing.T) {
-		targetList := make([]*ssm.Target, 2)
+		targetList := make([]ssmtypes.Target, 2)
 		err := validateRunFlags(cmd, instanceList, nil, []string{"hostname"}, targetList)
 		assert.Error(err)
 	})
 
 	t.Run("specify more than 5 filters", func(t *testing.T) {
-		targetList := make([]*ssm.Target, 6)
+		targetList := make([]ssmtypes.Target, 6)
 		err := validateRunFlags(cmd, nil, nil, []string{"hostname"}, targetList)
 		assert.Error(err)
 	})

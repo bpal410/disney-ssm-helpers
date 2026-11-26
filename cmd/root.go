@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/sirupsen/logrus"
@@ -56,7 +57,7 @@ Complete documentation is available at https://github.com/bpal410/ssm-helpers
 
 // Execute provides an entrypoint into the commands from main()
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -6,9 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/spf13/cobra"
 
 	"github.com/bpal410/ssm-helpers/aws/resolver"
@@ -38,7 +39,7 @@ func runCommand(cmd *cobra.Command, args []string) {
 	var err error
 	var instanceList, addressList, commandList, profileList, regionList []string
 	var maxConcurrency, maxErrors string
-	var targets []*ssm.Target
+	var targets []ssmtypes.Target
 
 	// Get all of our CLI flag values
 	if err = cmdutil.ValidateArgs(cmd, args); err != nil {
@@ -82,10 +83,10 @@ func runCommand(cmd *cobra.Command, args []string) {
 	log.Info("Command(s) to be executed:\n", strings.Join(commandList, "\n"))
 
 	sciInput := &ssm.SendCommandInput{
-		InstanceIds:  aws.StringSlice(instanceList),
+		InstanceIds:  instanceList,
 		Targets:      targets,
 		DocumentName: aws.String("AWS-RunShellScript"),
-		Parameters: map[string][]*string{
+		Parameters: map[string][]string{
 			/*
 				ssm.SendCommandInput objects require parameters for the DocumentName chosen
 
@@ -93,33 +94,35 @@ func runCommand(cmd *cobra.Command, args []string) {
 				which is the shell command to be executed on the target. To emulate
 				the original script, we also set "executionTimeout" to 10 minutes.
 			*/
-			"commands":         aws.StringSlice(commandList),
-			"executionTimeout": aws.StringSlice([]string{"600"}),
+			"commands":         commandList,
+			"executionTimeout": {"600"},
 		},
 		MaxConcurrency: aws.String(maxConcurrency),
 		MaxErrors:      aws.String(maxErrors),
 	}
 
+	ctx := cmd.Context()
 	wg, output := sync.WaitGroup{}, invocation.ResultSafe{}
 
 	// Set up our AWS session for each permutation of profile + region and iterate over them
-	sessionPool := session.NewPool(profileList, regionList, log)
+	sessionPool := session.NewPool(ctx, profileList, regionList, log)
 	for _, sess := range sessionPool.Sessions {
-		wg.Add(1)
-		var threadLocalSendCommandInput *ssm.SendCommandInput = &(*sciInput)
-		ssmClient := ssm.New(sess.Session)
+		threadLocalSendCommandInput := sciInput
+		ssmClient := ssm.NewFromConfig(sess.Config)
 
 		if len(addressList) > 0 {
-			ec2Client := ec2.New(sess.Session)
+			ec2Client := ec2.NewFromConfig(sess.Config)
 			hr := resolver.NewHostnameResolver(addressList)
-			ids, _ := hr.ResolveToInstanceId(ec2Client)
-			for _, id := range ids {
-				threadLocalSendCommandInput.InstanceIds = append(threadLocalSendCommandInput.InstanceIds, &id)
-			}
+			ids, _ := hr.ResolveToInstanceId(ctx, ec2Client)
+			threadLocalSendCommandInput.InstanceIds = append(threadLocalSendCommandInput.InstanceIds, ids...)
 		}
 
-		log.Debugf("Starting invocation targeting account %s in %s", sess.ProfileName, *sess.Session.Config.Region)
-		go ssmx.RunInvocations(sess, ssmClient, &wg, sciInput, &output)
+		log.Debugf("Starting invocation targeting account %s in %s", sess.ProfileName, sess.Region())
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ssmx.RunInvocations(ctx, sess, ssmClient, sciInput, &output)
+		}()
 	}
 
 	wg.Wait() // Wait for each account/region combo to finish
@@ -138,24 +141,24 @@ func runCommand(cmd *cobra.Command, args []string) {
 		}
 
 		if v.Status == invocation.CommandSuccess {
-			log.Infof(resultFormat, *v.InvocationResult.InstanceId, v.Region, v.ProfileName, v.Status)
+			log.Infof(resultFormat, aws.ToString(v.InvocationResult.InstanceId), v.Region, v.ProfileName, v.Status)
 			successCounter++
 		} else {
-			log.Errorf(resultFormat, *v.InvocationResult.InstanceId, v.Region, v.ProfileName, v.Status)
+			log.Errorf(resultFormat, aws.ToString(v.InvocationResult.InstanceId), v.Region, v.ProfileName, v.Status)
 			failedCounter++
 		}
 
 		// stdout is always written back at info level
-		if *v.InvocationResult.StandardOutputContent != "" {
-			log.Info(*v.InvocationResult.StandardOutputContent)
+		if stdout := aws.ToString(v.InvocationResult.StandardOutputContent); stdout != "" {
+			log.Info(stdout)
 		}
 
 		// stderr is written back at warn if the invocation was successful, and error if not
-		if *v.InvocationResult.StandardErrorContent != "" {
+		if stderr := aws.ToString(v.InvocationResult.StandardErrorContent); stderr != "" {
 			if v.Status == invocation.CommandSuccess {
-				log.Warn(*v.InvocationResult.StandardErrorContent)
+				log.Warn(stderr)
 			} else {
-				log.Error(*v.InvocationResult.StandardErrorContent)
+				log.Error(stderr)
 			}
 		}
 	}

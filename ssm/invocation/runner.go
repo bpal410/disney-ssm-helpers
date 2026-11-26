@@ -1,55 +1,29 @@
 package invocation
 
 import (
+	"context"
 	"fmt"
-	"time"
 
-	"github.com/aws/aws-sdk-go/service/ssm"
-	"github.com/aws/aws-sdk-go/service/ssm/ssmiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
-func GetTargets(client ssmiface.SSMAPI, commandID *string) (targets []*string, err error) {
-	var out *ssm.ListCommandInvocationsOutput
-
-	// Try a few times to get the invocation data, because it takes a little bit to have any information
-	for i := 0; i < 3; i++ {
-		time.Sleep(1 * time.Second)
-		if out, err = client.ListCommandInvocations(&ssm.ListCommandInvocationsInput{
-			CommandId: commandID,
-		}); err != nil {
-			return nil, err
-		}
-
-		if len(out.CommandInvocations) > 0 {
-			break
-		}
-	}
-
-	if len(out.CommandInvocations) == 0 {
-		return nil, fmt.Errorf("API response contained no invocations")
-	}
-
-	for _, inv := range out.CommandInvocations {
-		targets = append(targets, inv.InstanceId)
-	}
-
-	return targets, nil
+// CommandInvocationAPI is the part of the SSM API used to fetch an invocation's result
+type CommandInvocationAPI interface {
+	GetCommandInvocation(ctx context.Context, params *ssm.GetCommandInvocationInput, optFns ...func(*ssm.Options)) (*ssm.GetCommandInvocationOutput, error)
 }
 
-func GetResult(client ssmiface.SSMAPI, commandID *string, instanceID *string, gci chan *ssm.GetCommandInvocationOutput, ec chan error) {
-	status, err := client.GetCommandInvocation(&ssm.GetCommandInvocationInput{
-		CommandId:  commandID,
-		InstanceId: instanceID,
+// GetResult fetches the result of a command invocation on a single instance
+func GetResult(ctx context.Context, client CommandInvocationAPI, commandID string, instanceID string) (*ssm.GetCommandInvocationOutput, error) {
+	status, err := client.GetCommandInvocation(ctx, &ssm.GetCommandInvocationInput{
+		CommandId:  aws.String(commandID),
+		InstanceId: aws.String(instanceID),
 	})
-
-	switch {
-	case err != nil:
-		ec <- fmt.Errorf(
-			`Error when calling GetCommandInvocation API with args:\n
-			CommandId: %v\n
-			InstanceId: %v\n%v`,
-			*commandID, *instanceID, err)
-	case status != nil:
-		gci <- status
+	if err != nil {
+		return nil, fmt.Errorf(
+			"Error when calling GetCommandInvocation API with args:\nCommandId: %v\nInstanceId: %v\n%w",
+			commandID, instanceID, err)
 	}
+
+	return status, nil
 }
