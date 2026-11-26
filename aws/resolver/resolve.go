@@ -13,7 +13,7 @@ type InstanceResolver interface {
 	ResolveToInstanceId(client ec2iface.EC2API) ([]string, error)
 }
 
-/// HostnameResolver attempts to resolve a fqdn or IP to a corresponding instance ID.
+// HostnameResolver attempts to resolve a fqdn or IP to a corresponding instance ID.
 type HostnameResolver struct {
 	addrs []string
 }

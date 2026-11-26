@@ -17,7 +17,7 @@ import (
 	startsession "github.com/disneystreaming/ssm-helpers/ssm/session"
 )
 
-//CreateSSMDescribeInstanceInput returns an *ssm.DescribeInstanceInformationInput object for use when calling the DescribeInstanceInformation() method
+// CreateSSMDescribeInstanceInput returns an *ssm.DescribeInstanceInformationInput object for use when calling the DescribeInstanceInformation() method
 func CreateSSMDescribeInstanceInput(filters map[string]string, instances CommaSlice) *ssm.DescribeInstanceInformationInput {
 	var iisFilters []*ssm.InstanceInformationStringFilter
 
