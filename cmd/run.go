@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"runtime"
 	"slices"
@@ -107,7 +108,7 @@ func runCommand(cmd *cobra.Command, args []string) {
 	started := 0
 
 	// Set up our AWS session for each permutation of profile + region and iterate over them
-	sessionPool := session.NewPool(ctx, profileList, regionList, log)
+	sessionPool := newSessionPool(ctx, profileList, regionList)
 	for _, sess := range sessionPool.Sessions {
 		var resolvedIDs []string
 		if len(addressList) > 0 {
@@ -193,4 +194,17 @@ func inputForSession(base *ssm.SendCommandInput, resolvedIDs []string) *ssm.Send
 	input := *base
 	input.InstanceIds = append(slices.Clone(base.InstanceIds), resolvedIDs...)
 	return &input
+}
+
+// newSessionPool creates the AWS sessions for every profile/region pair. Pairs
+// that fail are logged and skipped; if none succeed, the command exits.
+func newSessionPool(ctx context.Context, profiles []string, regions []string) *session.Pool {
+	pool, err := session.NewPool(ctx, profiles, regions, log)
+	if err != nil {
+		if len(pool.Sessions) == 0 {
+			log.Fatalf("Error when trying to create session:\n%v", err)
+		}
+		log.Errorf("Some profile/region combinations will be skipped:\n%v", err)
+	}
+	return pool
 }

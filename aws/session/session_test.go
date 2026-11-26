@@ -81,11 +81,13 @@ func TestCreateAWSSessionPool(t *testing.T) {
 	t.Run("test session permutations", func(t *testing.T) {
 		// Ensure that AWS sessions are created for each permutation of region + profile
 		regions := []string{"us-test-1", "us-test-2", "us-test-3"}
-		pool := NewPool(ctx, profiles, regions, logger)
+		pool, err := NewPool(ctx, profiles, regions, logger)
+		require.NoError(t, err)
 		assert.Len(t, pool.Sessions, 9)
 
 		// Requires a region to be provided
-		pool = NewPool(ctx, profiles, nil, logger)
+		pool, err = NewPool(ctx, profiles, nil, logger)
+		require.NoError(t, err)
 		assert.Len(t, pool.Sessions, 0)
 	})
 
@@ -93,8 +95,17 @@ func TestCreateAWSSessionPool(t *testing.T) {
 		// Because we're using a map to store all the sessions, duplicate sessions should be filtered out
 		regions := []string{"us-test-1", "us-test-2", "us-test-2"}
 		dupProfiles := []string{"test-account-1", "test-account-2", "test-account-2"}
-		pool := NewPool(ctx, dupProfiles, regions, logger)
+		pool, err := NewPool(ctx, dupProfiles, regions, logger)
+		require.NoError(t, err)
 		assert.Len(t, pool.Sessions, 4)
+	})
+
+	t.Run("a bad profile does not stop the others", func(t *testing.T) {
+		pool, err := NewPool(ctx, []string{"test-account-1", "does-not-exist"}, []string{"us-test-1"}, logger)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "does-not-exist")
+		assert.Len(t, pool.Sessions, 1)
+		assert.Contains(t, pool.Sessions, "test-account-1-us-test-1")
 	})
 
 	t.Run("environment credentials use a single default session per region", func(t *testing.T) {
@@ -102,7 +113,8 @@ func TestCreateAWSSessionPool(t *testing.T) {
 		t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
 		t.Setenv("AWS_SESSION_TOKEN", "token")
 
-		pool := NewPool(ctx, profiles, []string{"us-test-1", "us-test-2"}, logger)
+		pool, err := NewPool(ctx, profiles, []string{"us-test-1", "us-test-2"}, logger)
+		require.NoError(t, err)
 		assert.Len(t, pool.Sessions, 2)
 		assert.Contains(t, pool.Sessions, "default-us-test-1")
 	})

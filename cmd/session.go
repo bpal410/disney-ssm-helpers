@@ -115,7 +115,7 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 
 	// Set up our AWS session for each permutation of profile + region and iterate over them
-	sessionPool := session.NewPool(ctx, profileList, regionList, log)
+	sessionPool := newSessionPool(ctx, profileList, regionList)
 	for _, sess := range sessionPool.Sessions {
 		wg.Add(1)
 		go func(sess *session.Session, instancePool *instance.InstanceInfoSafe) {
@@ -145,8 +145,8 @@ func startSessionCommand(cmd *cobra.Command, args []string) {
 
 			sessionInstances, err := instance.GetSessionInstances(ctx, ssmClient, diiInput)
 			if err != nil {
-				log.Tracef("AWS Session Parameters: %s, %s", sess.Region(), sess.ProfileName)
-				log.Fatal(err)
+				log.Errorf("Could not list instances for %s in %s\n%v", sess.ProfileName, sess.Region(), err)
+				return
 			}
 
 			atomic.AddInt32(&totalInstances, int32(len(sessionInstances)))

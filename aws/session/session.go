@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -13,14 +14,21 @@ import (
 	"github.com/bpal410/ssm-helpers/aws/config"
 )
 
-// NewPool is used to create a pool of AWS sessions with different profile/region permutations
-func NewPool(ctx context.Context, profiles []string, regions []string, logger *log.Logger) *Pool {
+// NewPool is used to create a pool of AWS sessions with different profile/region permutations.
+//
+// A profile/region pair whose config cannot be loaded is left out of the pool
+// and its error is included in the returned error, so one broken profile does
+// not stop the others from being used. Callers should treat an error with an
+// empty pool as fatal.
+func NewPool(ctx context.Context, profiles []string, regions []string, logger *log.Logger) (*Pool, error) {
 	sessions := map[string]*Session{}
+	var errs []error
 
 	add := func(name, profile, region string) {
 		session, err := newSession(ctx, profile, region, logger)
 		if err != nil {
-			logger.Fatalf("Error when trying to create session:\n%v", err)
+			errs = append(errs, err)
+			return
 		}
 		sessions[name] = session
 	}
@@ -36,7 +44,7 @@ func NewPool(ctx context.Context, profiles []string, regions []string, logger *l
 		}
 	}
 
-	return &Pool{Sessions: sessions}
+	return &Pool{Sessions: sessions}, errors.Join(errs...)
 }
 
 func stsCredentialsSet() bool {
